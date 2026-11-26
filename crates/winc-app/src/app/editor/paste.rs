@@ -136,7 +136,7 @@ impl App {
         if !files.is_empty() {
             self.paste_files(&files);
         } else if let Some(text) = self.clipboard_text() {
-            // 网址和表格单元格的改写（`markdown_paste`）优先于 HTML 的转换。
+            // 网址和表格单元格的改写（`markdown_paste`）优先于可编辑的预览中 HTML 的转换。
             let markdown = match self.markdown_paste(&text) {
                 Some(markdown) => Some(markdown),
                 None => self.markdown_html_paste(&text),

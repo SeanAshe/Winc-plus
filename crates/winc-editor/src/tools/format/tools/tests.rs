@@ -5,6 +5,17 @@ use super::*;
 use crate::test_util::scratch;
 use crate::tools::format::tests::fake_tool;
 
+/// 查找项目在用哪个工具：从 `dir` 向上，每次使用新的 [`Survey`]。
+fn detected(task: Task, language: &str, dir: &Path) -> Detected {
+    detect(&mut Survey::default(), task, language, dir)
+}
+
+/// 查找项目自带的程序 `name`：从 `dir` 向上，每次使用新的 [`Survey`]。
+#[cfg(unix)] // 只有 Unix 上的测试用到
+fn found(name: &str, dir: &Path) -> Option<(PathBuf, PathBuf)> {
+    find_in_project(&mut Survey::default(), name, dir)
+}
+
 /// 没有迹象时按顺序尝试的几个工具的名称。
 fn installed(detected: Detected) -> Vec<&'static str> {
     match detected {
@@ -16,16 +27,16 @@ fn installed(detected: Detected) -> Vec<&'static str> {
 #[test]
 fn rust_and_go_are_always_formatted_others_use_a_sign_or_what_is_installed() {
     let dir = scratch("detect-always");
-    let detected = |language| detect(Task::Format, language, &dir);
-    assert!(matches!(detected("rust"), Detected::Preset(p, None) if p.name == "rustfmt"));
-    assert!(matches!(detected("go"), Detected::Preset(p, None) if p.name == "gofmt"));
-    assert_eq!(installed(detected("javascript")), ["Prettier", "Biome"]);
-    assert_eq!(installed(detected("python")), ["Black", "Ruff"]);
-    assert_eq!(installed(detected("shell")), ["shfmt"]);
+    let format = |language| detected(Task::Format, language, &dir);
+    assert!(matches!(format("rust"), Detected::Preset(p, None) if p.name == "rustfmt"));
+    assert!(matches!(format("go"), Detected::Preset(p, None) if p.name == "gofmt"));
+    assert_eq!(installed(format("javascript")), ["Prettier", "Biome"]);
+    assert_eq!(installed(format("python")), ["Black", "Ruff"]);
+    assert_eq!(installed(format("shell")), ["shfmt"]);
     // `jq` 会改写内容，不作为回退候选。
-    assert_eq!(installed(detected("json")), ["Prettier", "Biome"]);
-    assert_eq!(detected("xml"), Detected::NoPreset);
-    assert_eq!(detected("makefile"), Detected::NoPreset);
+    assert_eq!(installed(format("json")), ["Prettier", "Biome"]);
+    assert_eq!(format("xml"), Detected::NoPreset);
+    assert_eq!(format("makefile"), Detected::NoPreset);
 }
 
 #[test]
@@ -36,7 +47,7 @@ fn the_nearest_sign_wins() {
     std::fs::write(root.join(".prettierrc"), "{}").unwrap();
     std::fs::write(root.join("packages/app/biome.json"), "{}").unwrap();
 
-    let reason = |dir: &Path| match detect(Task::Format, "typescript", dir) {
+    let reason = |dir: &Path| match detected(Task::Format, "typescript", dir) {
         Detected::Preset(p, reason) => (p.name, reason.unwrap()),
         other => panic!("{other:?}"),
     };
@@ -58,7 +69,7 @@ fn package_json_counts_only_declared_dependencies() {
     // 间接依赖被安装进 `node_modules/.bin`，不算在使用。
     fake_tool(&root.join("node_modules/.bin"), "prettier", "cat");
     assert!(matches!(
-        detect(Task::Format, "javascript", &root),
+        detected(Task::Format, "javascript", &root),
         Detected::Installed(_)
     ));
 
@@ -68,7 +79,7 @@ fn package_json_counts_only_declared_dependencies() {
     )
     .unwrap();
     assert!(matches!(
-        detect(Task::Format, "css", &root),
+        detected(Task::Format, "css", &root),
         Detected::Preset(p, Some(r)) if p.name == "Prettier" && r == "package.json"
     ));
 
@@ -77,12 +88,13 @@ fn package_json_counts_only_declared_dependencies() {
         r#"{"prettier": "@company/style"}"#,
     )
     .unwrap();
-    assert!(
-        matches!(detect(Task::Format, "yaml", &root), Detected::Preset(p, _) if p.name == "Prettier")
-    );
+    assert!(matches!(
+        detected(Task::Format, "yaml", &root),
+        Detected::Preset(p, _) if p.name == "Prettier"
+    ));
     std::fs::write(root.join("package.json"), "{ 不是 JSON").unwrap();
     assert!(matches!(
-        detect(Task::Format, "yaml", &root),
+        detected(Task::Format, "yaml", &root),
         Detected::Installed(_)
     ));
 }
@@ -92,7 +104,7 @@ fn package_json_counts_only_declared_dependencies() {
 #[test]
 fn astro_uses_prettier_only_with_the_plugin() {
     let root = scratch("detect-astro");
-    assert_eq!(detect(Task::Format, "astro", &root), Detected::NoPreset);
+    assert_eq!(detected(Task::Format, "astro", &root), Detected::NoPreset);
 
     std::fs::write(
         root.join("package.json"),
@@ -100,7 +112,7 @@ fn astro_uses_prettier_only_with_the_plugin() {
     )
     .unwrap();
     assert!(matches!(
-        detect(Task::Format, "astro", &root),
+        detected(Task::Format, "astro", &root),
         Detected::Preset(p, Some(reason)) if p.name == "Prettier" && reason == "package.json"
             // Prettier 3 不自动加载依赖中的插件，命令中必须指名。
             && p.command.contains("--plugin prettier-plugin-astro")
@@ -111,7 +123,7 @@ fn astro_uses_prettier_only_with_the_plugin() {
         r#"{"devDependencies": {"prettier": "^3"}}"#,
     )
     .unwrap();
-    assert_eq!(detect(Task::Format, "astro", &root), Detected::NoPreset);
+    assert_eq!(detected(Task::Format, "astro", &root), Detected::NoPreset);
 }
 
 #[cfg(unix)] // 用不带扩展名的脚本冒充工具；Windows 上程序要带 PATHEXT 中的扩展名
@@ -123,23 +135,25 @@ fn black_is_preferred_when_the_project_configures_both() {
         "[tool.ruff]\nline-length = 100\n\n[tool.black]\nline-length = 100\n",
     )
     .unwrap();
-    assert!(
-        matches!(detect(Task::Format, "python", &root), Detected::Preset(p, _) if p.name == "Black")
-    );
+    assert!(matches!(
+        detected(Task::Format, "python", &root),
+        Detected::Preset(p, _) if p.name == "Black"
+    ));
 
     std::fs::write(
         root.join("pyproject.toml"),
         "[tool.ruff.lint]\nselect = []\n",
     )
     .unwrap();
-    assert!(
-        matches!(detect(Task::Format, "python", &root), Detected::Preset(p, _) if p.name == "Ruff")
-    );
+    assert!(matches!(
+        detected(Task::Format, "python", &root),
+        Detected::Preset(p, _) if p.name == "Ruff"
+    ));
 
     std::fs::remove_file(root.join("pyproject.toml")).unwrap();
     fake_tool(&root.join(".venv/bin"), "black", "cat");
     assert!(matches!(
-        detect(Task::Format, "python", &root),
+        detected(Task::Format, "python", &root),
         Detected::Preset(p, Some(r)) if p.name == "Black" && r == ".venv"
     ));
 }
@@ -151,15 +165,12 @@ fn project_programs_are_found_from_the_file_upwards() {
     let deep = root.join("a/b/c");
     std::fs::create_dir_all(&deep).unwrap();
     let tool = fake_tool(&root.join("a/node_modules/.bin"), "prettier", "cat");
-    assert_eq!(
-        find_in_project("prettier", &deep),
-        Some((tool, root.join("a")))
-    );
-    assert_eq!(find_in_project("prettier", &root), None);
+    assert_eq!(found("prettier", &deep), Some((tool, root.join("a"))));
+    assert_eq!(found("prettier", &root), None);
     // 不可执行的文件不算。
     std::fs::create_dir_all(root.join(".venv/bin")).unwrap();
     std::fs::write(root.join(".venv/bin/ruff"), "").unwrap();
-    assert_eq!(find_in_project("ruff", &deep), None);
+    assert_eq!(found("ruff", &deep), None);
 }
 
 #[test]

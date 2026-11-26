@@ -2,8 +2,9 @@
 //!
 //! [`shell`] 提供环境与进程运行，[`format`] 在其上实现格式化工具的自动选择、调用与结果应用；
 //! [`latex`] 找 TeX 程序并生成编译命令；[`host`] 为运行在其他主机上的程序换算路径；[`http`]
-//! 解析 `.http` 请求文件并用 `curl` 发送请求。
+//! 解析 `.http` 请求文件并用 `curl` 发送请求；[`ai`] 用 `curl` 调用模型生成文字。
 
+pub mod ai;
 pub mod format;
 pub mod host;
 pub mod http;

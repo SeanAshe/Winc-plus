@@ -3,8 +3,8 @@
 //! 不带参数时恢复上次的现场；给出目录或文件时打开它们，多个文件以第一个文件所在的目录作为项目。
 //! 命令行上的 `文件:行[:列]` 跳到指定位置，行号和列号从 1 起。`ssh://主机/路径` 打开远端主机上
 //! 的目录和文件（见 [`remote_open`]）。`-w`、`--wait` 在给出的文件的标签
-//! 全部关闭后退出，供 `git` 等程序作为编辑器调用；`-` 读取标准输入；`-n`、`--new-instance` 不交给
-//! 正在运行的 winc，由当前进程新建实例。
+//! 全部关闭后退出，供 `git` 等程序作为编辑器调用；`-d`、`--diff` 并排比较两个文件；`-` 读取标准
+//! 输入；`-n`、`--new-instance` 不转交正在运行的 winc，由当前进程新建实例。
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -22,11 +22,22 @@ pub struct Target {
     pub col: Option<usize>,
 }
 
+/// 命令行上要比较的两个文件（`-d`、`--diff`）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Diff {
+    /// 左侧的文件（原来的版本）。
+    pub left: PathBuf,
+    /// 右侧的文件（修改后的版本）。
+    pub right: PathBuf,
+}
+
 /// 解析后的命令行参数。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Args {
     /// 要打开的目录和文件，顺序与命令行一致。
     pub targets: Vec<Target>,
+    /// 要比较的文件，每对各开一个差异标签，顺序与命令行一致。
+    pub diffs: Vec<Diff>,
     /// `-w`、`--wait`：所有给出的文件的标签关闭后才退出。
     pub wait: bool,
     /// 是否读取标准输入（`-`）。
@@ -78,8 +89,8 @@ impl Args {
 ///
 /// # Errors
 ///
-/// 出现无法识别的选项，或使用 `--wait` 但没有给出文件、也没有读取标准输入时，返回面向用户的
-/// 错误说明（含用法）。
+/// 出现无法识别的选项、`--diff` 之后不足两个文件，或使用 `--wait` 但没有给出文件、也没有读取
+/// 标准输入时，返回面向用户的错误说明（含用法）。
 pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Args, String> {
     let mut parsed = Args::default();
     let mut options = true;
@@ -94,6 +105,16 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Args, String> {
                 }
                 Some("-w" | "--wait") => {
                     parsed.wait = true;
+                    continue;
+                }
+                // 其后的两个参数是要比较的文件：不拆出行号，以 `-` 开头也不当作选项。
+                Some("-d" | "--diff") => {
+                    let (Some(left), Some(right)) = (args.next(), args.next()) else {
+                        let message = t!("cmd-cli-diff-needs-files");
+                        return Err(format!("{message}\n\n{}", usage()));
+                    };
+                    let (left, right) = (PathBuf::from(left), PathBuf::from(right));
+                    parsed.diffs.push(Diff { left, right });
                     continue;
                 }
                 Some("-n" | "--new-instance") => {
@@ -166,9 +187,17 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Args, String> {
             let path = std::mem::take(&mut target.path);
             target.path = winc_editor::wsl::from_distro(distro, path);
         }
+        for path in parsed
+            .diffs
+            .iter_mut()
+            .flat_map(|d| [&mut d.left, &mut d.right])
+        {
+            *path = winc_editor::wsl::from_distro(distro, std::mem::take(path));
+        }
     }
     check_remote(&parsed)?;
-    if parsed.wait && parsed.targets.is_empty() && !parsed.stdin {
+    let waits_for = !parsed.targets.is_empty() || !parsed.diffs.is_empty();
+    if parsed.wait && !waits_for && !parsed.stdin {
         return Err(format!("{}\n\n{}", t!("cmd-cli-wait-needs-file"), usage()));
     }
     Ok(parsed)
@@ -191,6 +220,21 @@ pub fn without_launcher_flag(args: impl IntoIterator<Item = OsString>) -> Vec<Os
             !(options && arg == LAUNCHER_FLAG)
         })
         .collect()
+}
+
+/// 检查 `--diff` 给出的路径都是本机上存在的文件。
+///
+/// # Errors
+///
+/// 有路径不存在或不是文件时，返回面向用户的说明。
+pub fn check_diffs(args: &Args) -> Result<(), String> {
+    for path in args.diffs.iter().flat_map(|d| [&d.left, &d.right]) {
+        if !winc_backend::fs::metadata(path).is_ok_and(|meta| meta.is_file()) {
+            let path = path.display().to_string();
+            return Err(t!("cmd-cli-diff-not-file", path = path).to_owned());
+        }
+    }
+    Ok(())
 }
 
 /// 返回命令行用法说明。
@@ -313,8 +357,8 @@ fn remote_file(target: &Target, targets: &[Target]) -> bool {
         || (targets.iter()).any(|t| t.path != target.path && target.path.starts_with(&t.path))
 }
 
-/// 检查 `ssh://` 参数：都指向同一个连接目标，不与本机路径、`--wait` 和 `-` 一起使用，其中至多
-/// 一个是目录。
+/// 检查 `ssh://` 参数：都指向同一个连接目标，不与本机路径（含 `--diff` 的文件）、`--wait` 和 `-`
+/// 一起使用，其中至多一个是目录。
 fn check_remote(parsed: &Args) -> Result<(), String> {
     let mut remote = parsed.targets.iter().map(|t| winc_backend::locate(&t.path));
     let Some(first) = remote.next().flatten() else {
@@ -323,7 +367,7 @@ fn check_remote(parsed: &Args) -> Result<(), String> {
             None => Ok(()),
         };
     };
-    if remote.any(|at| at.is_none_or(|at| at.target != first.target)) {
+    if !parsed.diffs.is_empty() || remote.any(|at| at.is_none_or(|at| at.target != first.target)) {
         return Err(t!("cmd-cli-ssh-mixed").to_owned());
     }
     if parsed.wait || parsed.stdin {

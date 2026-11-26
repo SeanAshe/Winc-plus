@@ -1,4 +1,5 @@
-//! Markdown 中粘贴时改写为对应的写法：网址、图片网址、表格单元格和 HTML 内容。
+//! Markdown 中粘贴时改写为对应的写法：网址、图片网址、表格单元格，以及可编辑的预览中的 HTML
+//! 内容。
 
 use super::*;
 
@@ -63,11 +64,14 @@ impl App {
         Some(winc_preview::markdown::paragraph::link(text, Some(url), image).0)
     }
 
-    /// 返回 Markdown 中粘贴剪贴板 HTML 时写成的 Markdown；HTML 没有结构，或不如同时放在剪贴板
-    /// 里的纯文本 `text` 完整时为 `None`。
+    /// 返回可编辑的预览中粘贴剪贴板 HTML 时写成的 Markdown；不在可编辑的预览中、HTML 没有结构，
+    /// 或不如同时放在剪贴板里的纯文本 `text` 完整时为 `None`。
     ///
-    /// 只有一段文字时就地插入，有多块时单独成块。
+    /// 只有一段文字时就地插入，有多块时单独成块。编辑区中按原文编辑，粘贴纯文本。
     pub(in crate::app) fn markdown_html_paste(&mut self, text: &str) -> Option<String> {
+        if !self.markdown_live() {
+            return None;
+        }
         let spot = self.prose_spot()?;
         let html = self.clipboard.html()?;
         let converted = winc_preview::markdown::from_html::from_html(&html);

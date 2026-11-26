@@ -3,7 +3,7 @@
 //! 表格的读取（xlsx 包、数字格式、单元格文字）在 `winc_preview::table`，这一层只负责排版、
 //! 绘制和命中测试。列名和行号滚动时固定；单元格只显示第一行，放不下时截短，数字靠右；
 //! 合并的单元格画成一格，选中的区域有底色和边框，单选一格时浮出卡片显示完整文字；
-//! 多张工作表或表格被截断时，底部一栏列出各张工作表。
+//! 多张工作表或表格被截断时，底部一栏列出各张工作表，超出宽度时可以横向滚动。
 
 use std::borrow::Cow;
 use std::sync::Arc;
@@ -18,7 +18,8 @@ use winc_render::{FontKind, Frame, Rect};
 use crate::app::App;
 use crate::layout::drawn_scroll;
 use crate::theme::RADIUS_ROW;
-use crate::view::{ScrollArea, fit, ui_baseline};
+use crate::view::workspace::top_bar::TAB_FADE;
+use crate::view::{ScrollArea, fade, fit, ui_baseline};
 
 /// 单元格左右的留白（逻辑像素，取自调参）。
 const PAD: f32 = 8.0;
@@ -319,10 +320,12 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, index: usize, 
         crate::view::draw_thumb(frame, app.palette, thumb, look);
     }
 
-    app.preview.table_layout.edges = edges;
-    app.preview.table_layout.sheets.clear();
+    let layout = &mut app.preview.table_layout;
+    layout.edges = edges;
+    layout.sheets.clear();
+    (layout.bar, layout.bar_max) = (Rect::default(), 0.0);
     if let Some(bar) = bar {
-        draw_bar(app, frame, bar, &table, sheet_index);
+        draw_bar(app, frame, bar, index, &table);
     }
 }
 
@@ -518,12 +521,17 @@ fn draw_cell(app: &App, frame: &mut Frame<'_>, cell: Rect, text: &str, clip: Rec
     );
 }
 
-/// 绘制底部一栏：左边各张工作表的标签（当前的一张有底色），右边说明表格是否被截断。
-fn draw_bar(app: &mut App, frame: &mut Frame<'_>, bar: Rect, table: &Table, current: usize) {
+/// 绘制第 `index` 个文档底部的一栏：左边各张工作表的标签（当前的一张有底色），右边说明表格
+/// 是否被截断。标签超出宽度时横向滚动，滚出的一侧渐隐。
+fn draw_bar(app: &mut App, frame: &mut Frame<'_>, bar: Rect, index: usize, table: &Table) {
     let p = app.palette;
     let size = app.fonts.ui_small;
     frame.rect(bar, p.sidebar_bg);
     frame.rect(Rect::new(bar.x, bar.y, bar.w, 1.0), p.border);
+    let Some(view) = app.editor.documents[index].table.as_deref() else {
+        return;
+    };
+    let (current, mut bar_scroll, revealed) = (view.sheet, view.bar_scroll, view.bar_revealed);
 
     let mut right = bar.right() - 12.0;
     if table.sheets.get(current).is_some_and(|s| s.truncated) {
@@ -534,22 +542,62 @@ fn draw_bar(app: &mut App, frame: &mut Frame<'_>, bar: Rect, table: &Table, curr
         frame.text(FontKind::Ui, size, right, baseline, note, p.text_dim, bar);
         right -= 16.0;
     }
+    let strip = Rect::new(bar.x + 8.0, bar.y, (right - bar.x - 8.0).max(0.0), bar.h);
 
-    let mut x = bar.x + 8.0;
-    let mut tabs = Vec::new();
-    for (index, sheet) in table.sheets.iter().enumerate() {
-        let name = if sheet.name.is_empty() {
-            t!("preview-table-sheet", number = index + 1)
-        } else {
-            sheet.name.clone()
-        };
-        let name = fit(frame, &name, size, 200.0, false).into_owned();
-        let w = frame.measure(FontKind::Ui, size, &name) + 2.0 * 10.0;
-        let tab = Rect::new(x, bar.y + 6.0, w, bar.h - 12.0);
-        let clip = Rect::new(bar.x, bar.y, (right - bar.x).max(0.0), bar.h);
-        let selected = index == current;
+    // 各标签的名字、宽度和相对第一个标签的偏移。
+    let names: Vec<(String, f32)> = (table.sheets.iter().enumerate())
+        .map(|(i, sheet)| {
+            let name = if sheet.name.is_empty() {
+                t!("preview-table-sheet", number = i + 1)
+            } else {
+                sheet.name.clone()
+            };
+            let name = fit(frame, &name, size, 200.0, false).into_owned();
+            let w = frame.measure(FontKind::Ui, size, &name) + 2.0 * 10.0;
+            (name, w)
+        })
+        .collect();
+    let offsets: Vec<f32> = (names.iter())
+        .scan(0.0, |x, (_, w)| {
+            let left = *x;
+            *x += w + 4.0;
+            Some(left)
+        })
+        .collect();
+    let content = offsets
+        .last()
+        .zip(names.last())
+        .map_or(0.0, |(x, (_, w))| x + w);
+    let max = (content - strip.w).max(0.0);
+
+    // 当前的标签滚入可见范围，两侧留出渐隐的宽度。
+    if !revealed && let (Some(&start), Some((_, w))) = (offsets.get(current), names.get(current)) {
+        let margin = if max > 0.0 { TAB_FADE } else { 0.0 };
+        if start - margin < bar_scroll {
+            bar_scroll = start - margin;
+        } else if start + w + margin > bar_scroll + strip.w {
+            bar_scroll = start + w + margin - strip.w;
+        }
+    }
+    let bar_scroll = bar_scroll.clamp(0.0, max);
+    if let Some(view) = app.editor.documents[index].table.as_deref_mut() {
+        (view.bar_scroll, view.bar_revealed) = (bar_scroll, true);
+    }
+    // 取整到物理像素：小数位移下文字逐帧按不同的亚像素位置光栅化，表现为闪烁。
+    let scroll = (bar_scroll * frame.scale()).round() / frame.scale();
+
+    let mut tabs = Vec::with_capacity(names.len());
+    for (i, ((name, w), left)) in names.iter().zip(&offsets).enumerate() {
+        let tab = Rect::new(strip.x - scroll + left, bar.y + 6.0, *w, bar.h - 12.0);
+        let visible = tab.intersect(strip);
+        if visible.w <= 0.0 {
+            tabs.push(Rect::default());
+            continue;
+        }
+        tabs.push(visible);
+        let selected = i == current;
         if selected {
-            frame.rect_corners(tab, p.selected, [RADIUS_ROW; 4], clip);
+            frame.rect_corners(tab, p.selected, [RADIUS_ROW; 4], strip);
         }
         let color = if selected { p.text } else { p.text_muted };
         let baseline = ui_baseline(app, tab, size);
@@ -558,14 +606,29 @@ fn draw_bar(app: &mut App, frame: &mut Frame<'_>, bar: Rect, table: &Table, curr
             size,
             tab.x + 10.0,
             baseline,
-            &name,
+            name,
             color,
-            clip,
+            strip,
         );
-        tabs.push(tab);
-        x += w + 4.0;
     }
-    app.preview.table_layout.sheets = tabs;
+
+    // 渐隐强度在离两端 `TAB_FADE` 内线性变化，滚到两端时不突然出现或消失。
+    let fade_h = bar.h - 1.0;
+    let left = (scroll / TAB_FADE).min(1.0);
+    if left > 0.0 {
+        let rect = Rect::new(strip.x, bar.y + 1.0, TAB_FADE, fade_h);
+        frame.with_opacity(left, |frame| fade(frame, rect, p.sidebar_bg, true));
+    }
+    let rest = ((max - scroll) / TAB_FADE).min(1.0);
+    if rest > 0.0 {
+        let rect = Rect::new(strip.right() - TAB_FADE, bar.y + 1.0, TAB_FADE, fade_h);
+        frame.with_opacity(rest, |frame| fade(frame, rect, p.sidebar_bg, false));
+    }
+
+    let layout = &mut app.preview.table_layout;
+    layout.sheets = tabs;
+    layout.bar = strip;
+    layout.bar_max = max;
 }
 
 /// 返回各列的宽度（逻辑像素），按前 [`MEASURED_ROWS`] 行中最宽的文字确定。

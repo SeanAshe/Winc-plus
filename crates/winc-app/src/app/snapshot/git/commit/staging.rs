@@ -418,6 +418,9 @@ fn identical_changes_are_staged_one_by_one() {
 }
 
 /// 文件树和标签的右键菜单对有更改的文件提供暂存、取消暂存与回滚；没有更改的文件没有这几项。
+/// 暂存区视图中回滚只放弃未暂存的更改，与提交视图相同；勾选式下回滚到上次提交。
+///
+/// 回归：暂存区视图中从文件树、标签回滚，已暂存的更改也被放弃。
 #[test]
 fn the_tree_and_tab_menus_stage_and_roll_back_a_changed_file() {
     use crate::app::input::context_menu::MenuCommand::{CommitCheck, FileHistory, GitRollbackFile};
@@ -428,11 +431,20 @@ fn the_tree_and_tab_menus_stage_and_roll_back_a_changed_file() {
     app.git.commit.set_staging(true);
     let file = root.join("Cargo.toml");
     let before = std::fs::read_to_string(&file).unwrap();
-    std::fs::write(&file, format!("{before}# changed\n")).unwrap();
+    let staged = format!("{before}# staged\n");
+    std::fs::write(&file, &staged).unwrap();
     app.git_refresh();
     let commands = |app: &mut App, target: MenuTarget| -> Vec<_> {
         app.open_context_menu(target, (0.0, 0.0));
         menu_commands(app).into_iter().map(|(c, _)| c).collect()
+    };
+    let index = |root: &Path| {
+        let out = std::process::Command::new("git")
+            .args(["show", ":Cargo.toml"])
+            .current_dir(root)
+            .output()
+            .unwrap();
+        String::from_utf8(out.stdout).unwrap()
     };
 
     let listed = commands(&mut app, MenuTarget::Tree(Some(file.clone())));
@@ -443,21 +455,40 @@ fn the_tree_and_tab_menus_stage_and_roll_back_a_changed_file() {
     app.run_menu_command(CommitCheck(true));
     assert_eq!(file_state(&app, &file), Some(true));
 
-    // 已全部暂存的文件只有「取消暂存」；标签的菜单相同。
+    // 已全部暂存的文件只有「取消暂存」，没有可回滚的未暂存更改；标签的菜单相同。
     app.open_path(&file);
     let id = app.editor.active().unwrap().id;
     let listed = commands(&mut app, MenuTarget::Tab(id));
     assert!(
-        listed.ends_with(&[FileHistory, CommitCheck(false), GitRollbackFile]),
+        listed.ends_with(&[FileHistory, CommitCheck(false)]),
         "{listed:?}"
     );
-    app.run_menu_command(CommitCheck(false));
-    assert_eq!(file_state(&app, &file), None);
 
-    // 回滚恢复为上次提交的内容，之后该文件没有更改，菜单里也没有这几项。
+    // 暂存后又修改：回滚只放弃未暂存的更改，工作区恢复为暂存区的内容，暂存区不变。
+    std::fs::write(&file, format!("{staged}# unstaged\n")).unwrap();
+    app.git_refresh();
+    let listed = commands(&mut app, MenuTarget::Tab(id));
+    assert!(
+        listed.ends_with(&[
+            FileHistory,
+            CommitCheck(true),
+            CommitCheck(false),
+            GitRollbackFile
+        ]),
+        "{listed:?}"
+    );
+    app.run_menu_command(GitRollbackFile);
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), staged);
+    assert_eq!(index(&root), staged);
+
+    // 勾选式下回滚到上次提交，暂存区一起恢复；之后该文件没有更改，菜单里也没有这几项。
+    app.git.commit.set_staging(false);
+    std::fs::write(&file, format!("{staged}# unstaged\n")).unwrap();
+    app.git_refresh();
     let _ = commands(&mut app, MenuTarget::Tree(Some(file.clone())));
     app.run_menu_command(GitRollbackFile);
     assert_eq!(std::fs::read_to_string(&file).unwrap(), before);
+    assert_eq!(index(&root), before);
     let listed = commands(&mut app, MenuTarget::Tree(Some(file)));
     assert!(listed.ends_with(&[FileHistory]), "{listed:?}");
     let _ = std::fs::remove_dir_all(&root);

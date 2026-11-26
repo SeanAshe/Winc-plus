@@ -68,3 +68,18 @@ fn scanning_font_files_reads_families_and_prefers_the_regular_face() {
         Some("Menlo-Regular")
     );
 }
+
+/// Linux 上字体列表来自 fontconfig，因此包含装在固定字体目录之外的字体。
+#[cfg(target_os = "linux")]
+#[test]
+fn installed_families_include_fontconfig_directories() {
+    use crate::text::fontconfig::test_fonts::{self, Isolated};
+
+    let Some(_isolated) = Isolated::new() else {
+        return;
+    };
+    let families = list();
+    for name in [test_fonts::DEFAULT, test_fonts::TARGET, test_fonts::STYLE] {
+        assert!(families.iter().any(|family| family.name == name), "{name}");
+    }
+}

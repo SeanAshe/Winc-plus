@@ -178,6 +178,10 @@ pub fn run() {
     // 闭或读标准输入，总是自己打开；测量时、指定了 `--new-instance` 时也不交出去。读不了的目标现在
     // 就报告：之后可能交给其他进程，错误不再回到这个终端。
     let mut args = args;
+    if let Err(message) = cli::check_diffs(&args) {
+        eprintln!("winc: {message}");
+        std::process::exit(1);
+    }
     let failed = shell_command::report_unreadable(&mut args);
     if failed && args.targets.is_empty() {
         std::process::exit(1);
@@ -196,7 +200,7 @@ pub fn run() {
     }
     // `--wait` 给的全是打不开的目标（例如目录）时没有标签可等，窗口在命令行目标处理完之后
     // 不会自行退出，调用 winc 的程序（如 `git`）会一直等待。此时直接以失败状态退出。
-    if args.wait && !args.stdin && editor.documents.is_empty() {
+    if args.wait && !args.stdin && args.diffs.is_empty() && editor.documents.is_empty() {
         eprintln!(
             "winc: {}",
             winc_i18n::t!("cmd-cli-wait-needs-openable-file")
@@ -315,6 +319,13 @@ pub fn run() {
     }
     // 临时打开（`--wait`、`-`）时不记录现场、不加入最近列表、不备份，下次启动的状态不受影响。
     if args.one_off() {
+        app.open_diffs(&args.diffs);
+        // 要比较的文件都打不开（二进制文件、过大）时同样没有标签可等，直接以失败状态退出。
+        if args.wait && !args.stdin && app.editor.documents.is_empty() {
+            let reason = winc_i18n::t!("cmd-cli-wait-needs-openable-file");
+            eprintln!("winc: {reason}");
+            std::process::exit(1);
+        }
         app.start_one_off(&args);
     } else {
         app.store.state_path = state_path;
@@ -338,12 +349,13 @@ pub fn run() {
             Some(open) => app.open_remote(open),
             None if args.targets.is_empty() => {
                 let reconnecting = app.restore_remote_folder();
-                if !reconnecting {
+                if !reconnecting && args.diffs.is_empty() {
                     app.start_with_new_file();
                 }
             }
             None => {}
         }
+        app.open_diffs(&args.diffs);
     }
 
     winc.add(key, app);
@@ -448,15 +460,19 @@ pub(crate) fn open_targets(editor: &mut Editor, args: &cli::Args) -> Opened {
 /// 是否已将要打开的目录和文件交给正在运行的 winc，由该进程切到打开该目录的窗口、新建窗口或
 /// 切到前台。
 fn hand_over(args: &cli::Args, tokens: &instance::LaunchTokens) -> bool {
-    let targets: Vec<cli::Target> = args
-        .targets
-        .iter()
-        .map(|t| cli::Target {
-            path: instance::absolute(&t.path),
-            ..t.clone()
-        })
-        .collect();
-    instance::forward_to_app(&targets, tokens.forwarded())
+    let targets = args.targets.iter().map(|t| cli::Target {
+        path: instance::absolute(&t.path),
+        ..t.clone()
+    });
+    let diffs = args.diffs.iter().map(|d| cli::Diff {
+        left: instance::absolute(&d.left),
+        right: instance::absolute(&d.right),
+    });
+    instance::forward_to_app(&instance::Launch {
+        targets: targets.collect(),
+        diffs: diffs.collect(),
+        token: tokens.forwarded().map(str::to_owned),
+    })
 }
 
 /// 事件循环是否使用 Wayland。

@@ -369,7 +369,7 @@ pub(super) fn draw_selection(
     }
 }
 
-/// 绘制光标，或输入法正在组字的文本；返回输入法候选框应对齐的矩形。
+/// 绘制光标，或输入法正在组字的文本及其中的光标；返回输入法候选框应对齐的矩形。
 pub(in crate::view) fn draw_caret(
     app: &App,
     frame: &mut Frame<'_>,
@@ -415,7 +415,24 @@ pub(in crate::view) fn draw_caret(
         0.0,
         clip,
     );
-    caret_rect(px, y, app.fonts.line_height)
+    let at = preedit_cursor_x(app, preedit, &cells, x, cell);
+    if let Some(at) = at {
+        caret_bar(app, frame, at, y, clip);
+    }
+    caret_rect(at.unwrap_or(px), y, app.fonts.line_height)
+}
+
+/// 返回按格排列的组字文字 `text` 中输入法光标的横坐标（[`App::preedit_cursor`]）：`cells` 是
+/// 各字所占的格数，`x` 是组字文字的左边缘，`cell` 是一格的宽度。没有光标时为 `None`。
+pub(in crate::view) fn preedit_cursor_x(
+    app: &App,
+    text: &str,
+    cells: &[usize],
+    x: f32,
+    cell: f32,
+) -> Option<f32> {
+    let before = text[..app.preedit_cursor(text)?].chars().count();
+    Some(x + cells[..before].iter().sum::<usize>() as f32 * cell)
 }
 
 /// 绘制 Vim 模式的光标：覆盖字符 `c` 的块、字符下方的横线，或空心的块。

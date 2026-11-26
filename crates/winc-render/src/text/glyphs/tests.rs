@@ -20,7 +20,9 @@ fn emoji_sequences_are_composed_by_the_emoji_font() {
         return;
     }
     let size = 20.0;
-    let single = cache.lookup(FontKind::Ui, size, '😀').advance;
+    let single = cache
+        .lookup_faux(FontKind::Ui, Faux::default(), size, '😀')
+        .advance;
     assert!(single > 0.0);
     for unit in [
         "❤\u{fe0f}",

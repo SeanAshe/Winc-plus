@@ -21,11 +21,31 @@ pub(crate) fn bare_font(tags: &[&[u8; 4]]) -> Vec<u8> {
     data
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn a_collection_can_be_selected_by_index() {
+    use crate::text::fontconfig::test_fonts;
+    let data = test_fonts::collection(&[
+        (test_fonts::COLLECTION, "Regular", 400, false),
+        (test_fonts::COLLECTION, "Bold", 700, false),
+    ]);
+    let regular = select(&data, None, Some(0)).unwrap();
+    assert_eq!(
+        postscript_name(&regular.font).as_deref(),
+        Some("WincCollection-Regular")
+    );
+    let bold = select(&data, None, Some(1)).unwrap();
+    assert_eq!(
+        postscript_name(&bold.font).as_deref(),
+        Some("WincCollection-Bold")
+    );
+}
+
 #[test]
 fn only_fonts_with_drawable_glyphs_are_selected() {
     // 有任何一种 swash 能绘制的字形表即可选用；只有 `hvgl` 表时，macOS 上改由系统提供轮廓，
     // 其他平台上不能选用；一种字形表都没有时不能选用。
-    let system = |tags: &[&[u8; 4]]| select(&bare_font(tags), None).map(|s| s.system);
+    let system = |tags: &[&[u8; 4]]| select(&bare_font(tags), None, None).map(|s| s.system);
     for tag in GLYPH_TABLES {
         assert_eq!(system(&[b"cmap", tag]), Some(false), "{tag:?}");
     }
@@ -115,6 +135,7 @@ fn a_collection_opens_the_face_named_by_its_postscript_name() {
     let bold = FontFile {
         path: path.into(),
         postscript: Some("Menlo-Bold".into()),
+        index: None,
     };
     let face = Face::open(&bold).expect("Menlo 是 macOS 自带字体");
     assert_eq!(postscript(&face), "Menlo-Bold");
@@ -125,6 +146,7 @@ fn a_collection_opens_the_face_named_by_its_postscript_name() {
     let unknown = FontFile {
         path: path.into(),
         postscript: Some("Menlo-Nothing".into()),
+        index: None,
     };
     assert_eq!(postscript(&Face::open(&unknown).unwrap()), "Menlo-Regular");
 }
@@ -225,9 +247,10 @@ fn a_separate_terminal_weight_uses_its_own_fallback_faces() {
     assert_eq!(fonts.terminal_fallbacks.len(), fonts.fallbacks.len());
     let (cjk, _) = fonts.resolve(FontKind::Terminal, '中');
     assert!(!fonts.fallbacks.contains(&cjk), "{cjk}");
-    // 缺字时的顺序同字重相同时：终端没有单独的字体列表时只多出界面字体一项，不列平台的其他
-    // 候选字体。
-    assert!(fonts.listed[2].len() <= 1, "{:?}", fonts.listed[2]);
+    // 缺字时的顺序同字重相同时：终端没有单独的字体列表时用等宽字体的列表（没有配置时为系统为
+    // 等宽字族配置的其余字体），再多出界面字体一项，不列平台的其他候选字体。
+    let most = fonts.listed[0].len() + 1;
+    assert!(fonts.listed[2].len() <= most, "{:?}", fonts.listed[2]);
     // 彩色 emoji 没有字重，终端与其余文字共用一个槽位。
     assert!(fonts.terminal_fallbacks.contains(&fonts.emoji));
     let (slot, _) = fonts.resolve(FontKind::Terminal, '😀');
@@ -368,26 +391,22 @@ fn fonts_without_stated_heights_measure_their_letters() {
     assert!(measured.0 > 30.0 && measured.1 > measured.0, "{measured:?}");
 }
 
+/// 回归：找不到的名字不能让 fontconfig 的后备字体占住，否则后面的字体都不会被用到。
+#[cfg(target_os = "linux")]
 #[test]
-fn sorted_fontconfig_results_keep_order_and_skip_missing_files() {
-    let dir = std::env::temp_dir().join(format!("winc-sorted-fonts-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let (a, b) = (dir.join("a.ttf"), dir.join("b.ttc"));
-    std::fs::write(&a, "").unwrap();
-    std::fs::write(&b, "").unwrap();
-    let text = format!(
-        "{}\nFirst\n/no/such/file.ttf\nGone\n{}\n\n",
-        a.display(),
-        b.display()
-    );
+fn a_missing_font_does_not_take_the_place_of_the_next_one() {
+    use crate::text::fontconfig::test_fonts::{self, Isolated};
 
-    let fonts = parse_sorted_fonts(&text);
-    assert_eq!(fonts.len(), 2);
-    assert_eq!(fonts[0].path, a);
-    assert_eq!(fonts[0].postscript.as_deref(), Some("First"));
-    assert_eq!(fonts[1].path, b);
-    assert_eq!(fonts[1].postscript, None);
-    std::fs::remove_dir_all(&dir).unwrap();
+    let Some(isolated) = Isolated::new() else {
+        return;
+    };
+    let specs = [
+        FontSpec::Name("Winc Missing 7f3a".into()),
+        FontSpec::Name(test_fonts::DEFAULT.into()),
+    ];
+    let files = resolve_list(&specs);
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].path, isolated.regular(test_fonts::DEFAULT));
 }
 
 /// 回归：fontconfig 把不含汉字的字体排在最前时，中文后备槽位继续往后找含汉字的字体。
@@ -397,7 +416,7 @@ fn the_cjk_slot_skips_fonts_without_chinese() {
     let query = "sans-serif:lang=zh-cn";
     let covers =
         |file: &FontFile| Face::open(file).is_some_and(|face| face.font().charmap().map('中') != 0);
-    let sorted = fontconfig_sorted(query);
+    let sorted = crate::text::fontconfig::sorted(query);
     let Some(chinese) = sorted.iter().find(|file| covers(file)) else {
         return;
     };
@@ -414,7 +433,7 @@ fn the_cjk_slot_skips_fonts_without_chinese() {
         files: vec![latin.clone(), chinese.clone()],
         probe: Some('中'),
     };
-    let face = choices.open(0).unwrap();
+    let (face, _) = choices.open(0).unwrap();
     assert_ne!(face.font().charmap().map('中'), 0);
 
     // 查询结果本身也是如此，无论 fontconfig 把什么字体排在第一个。
@@ -423,7 +442,7 @@ fn the_cjk_slot_skips_fonts_without_chinese() {
         files: Vec::new(),
         probe: Some('中'),
     };
-    assert_ne!(choices.open(0).unwrap().font().charmap().map('中'), 0);
+    assert_ne!(choices.open(0).unwrap().0.font().charmap().map('中'), 0);
 
     // 都不含时仍用第一个能打开的字体。
     let choices = Choices {
@@ -439,10 +458,11 @@ fn the_cjk_slot_skips_fonts_without_chinese() {
 #[cfg(target_os = "linux")]
 #[test]
 fn chinese_text_finds_a_font_on_linux() {
-    let has_chinese = std::process::Command::new("fc-list")
-        .arg(":lang=zh")
-        .output()
-        .is_ok_and(|output| !output.stdout.is_empty());
+    let files = crate::text::fontconfig::files().unwrap_or_default();
+    let has_chinese = files.iter().any(|path| {
+        Face::open(&FontFile::first(path.clone()))
+            .is_some_and(|face| face.font().charmap().map('中') != 0)
+    });
     if !has_chinese {
         return;
     }
@@ -629,4 +649,113 @@ fn emoji_use_the_color_font_before_symbol_fonts() {
             }
         }
     }
+}
+
+#[test]
+fn sibling_files_share_the_name_up_to_the_first_hyphen() {
+    use std::path::Path;
+
+    let prefix = |name: &str| weight::name_prefix(Path::new(name));
+    assert_eq!(
+        prefix("JetBrainsMono-Regular.ttf").as_deref(),
+        Some("jetbrainsmono-")
+    );
+    // 同一目录中前缀更长的其他字族不算同族，不必逐个打开。
+    assert!(!"notosansmono-bold.ttf".starts_with(&prefix("NotoSans-Regular.ttf").unwrap()));
+    // 没有 `-` 时取前三个字符：同族各字重的文件名常只有开头相同。
+    assert_eq!(prefix("segoeui.ttf").as_deref(), Some("seg"));
+    assert!("dejavusansmono-bold.ttf".starts_with(&prefix("DejaVuSansMono.ttf").unwrap()));
+    assert_eq!(prefix("ab"), None);
+}
+
+/// 有字重轴、同族粗体或系统字体的粗体实例时，粗体使用派生的槽位，字体自身提供字重；没有时仍用
+/// 原槽位，由绘制时加宽笔画。
+#[cfg(target_os = "macos")]
+#[test]
+fn bold_uses_the_weight_the_font_provides() {
+    let mut fonts = Fonts::load(&[], &[], &[], 400).expect("系统里有等宽字体");
+    // 界面的西文来自 SF（字重轴），中文来自苹方（命名实例，最粗的 Semibold 为 600）。
+    for (c, gained) in [('A', 300.0), ('中', 200.0)] {
+        let (regular, _) = fonts.resolve(FontKind::Ui, c);
+        let (slot, glyph, faux) = fonts.resolve_bold(FontKind::Ui, c);
+        assert!(!faux, "{c}");
+        assert_ne!(slot, regular, "{c}");
+        assert_ne!(glyph, 0, "{c}");
+        assert_eq!(fonts.face(slot).unwrap().gained, gained, "{c}");
+    }
+    let (regular, _) = fonts.resolve(FontKind::Terminal, 'A');
+    let (slot, _, faux) = fonts.resolve_bold(FontKind::Terminal, 'A');
+    assert!(!faux);
+    assert_ne!(slot, regular);
+
+    // Monaco 没有同族的其他字体：粗体仍用原槽位。字重调细时同样如此，调细达不到不算变粗。
+    let monaco = FontSpec::Path("/System/Library/Fonts/Monaco.ttf".into());
+    for weight in [400, 300] {
+        let mut fonts = Fonts::load(std::slice::from_ref(&monaco), &[], &[], weight).unwrap();
+        let (slot, glyph) = fonts.resolve(FontKind::Mono, 'A');
+        assert_eq!(
+            fonts.resolve_bold(FontKind::Mono, 'A'),
+            (slot, glyph, true),
+            "{weight}"
+        );
+    }
+}
+
+/// 由系统提供轮廓的苹方没有字重轴可调：字重设置改用同族的命名实例。
+#[cfg(target_os = "macos")]
+#[test]
+fn system_outlined_fonts_follow_the_weight_with_named_instances() {
+    let mut fonts = Fonts::load(&[], &[], &[], 600).expect("系统里有等宽字体");
+    let (slot, _) = fonts.resolve(FontKind::Ui, '中');
+    let face = fonts.face(slot).unwrap();
+    if face.system.is_none() {
+        return;
+    }
+    assert_eq!((face.gained, face.embolden), (200.0, 0.0));
+}
+
+/// Linux 上没有字重轴的字体改用同目录中的粗体文件；系统中没有 `DejaVuSansMono.ttf` 时跳过。
+#[cfg(target_os = "linux")]
+#[test]
+fn bold_uses_the_bold_file_next_to_the_regular_one() {
+    let dir = std::path::Path::new("/usr/share/fonts/truetype/dejavu");
+    let regular = dir.join("DejaVuSansMono.ttf");
+    if !regular.is_file() || !dir.join("DejaVuSansMono-Bold.ttf").is_file() {
+        return;
+    }
+    let mut fonts = Fonts::load(&[FontSpec::Path(regular)], &[], &[], 400).unwrap();
+    let (regular, _) = fonts.resolve(FontKind::Mono, 'A');
+    let (slot, _, faux) = fonts.resolve_bold(FontKind::Mono, 'A');
+    assert!(!faux);
+    assert_ne!(slot, regular);
+    let face = fonts.face(slot).unwrap();
+    assert_eq!((face.gained, face.embolden), (300.0, 0.0));
+}
+
+/// 回归（#518）：没有配置等宽字体时，主字体缺的字（Nerd Font 图标）按 fontconfig 为 `monospace`
+/// 配置的回退顺序找，终端字重不同时同样如此；配置了等宽字体时只用配置的列表。
+#[cfg(target_os = "linux")]
+#[test]
+fn the_default_monospace_font_falls_back_in_the_configured_order() {
+    use crate::text::fontconfig::test_fonts::{self, CHAIN_SYMBOL, Isolated};
+    let Some(isolated) = Isolated::new() else {
+        return;
+    };
+    let file_of = |fonts: &Fonts, slot: u8| match &fonts.slots[usize::from(slot)] {
+        Slot::Ready(loaded) => loaded.origin.as_ref().map(|(file, _)| file.path.clone()),
+        _ => None,
+    };
+    let next = Some(isolated.regular(test_fonts::CHAIN_NEXT));
+    for terminal_weight in [400, 700] {
+        let mut fonts = Fonts::load_with(&[], &[], &[], 400, terminal_weight).unwrap();
+        for kind in [FontKind::Mono, FontKind::Terminal] {
+            let (slot, glyph) = fonts.resolve(kind, CHAIN_SYMBOL);
+            assert_ne!(glyph, 0, "{kind:?}");
+            assert_eq!(file_of(&fonts, slot), next, "{kind:?} {terminal_weight}");
+        }
+    }
+
+    let first = FontSpec::Name(test_fonts::CHAIN_FIRST.into());
+    let fonts = Fonts::load(&[first], &[], &[], 400).unwrap();
+    assert!(fonts.listed[0].is_empty());
 }

@@ -9,7 +9,14 @@ impl Markdown {
     ///
     /// 块之间的第一个空行只是分隔，不插入；其后连续的空行、文首的空行各插入一个。块的范围
     /// 末尾的空行（列表之后）不算在块里。空段落的范围是该行开头的空范围。
-    pub fn with_blank_lines(mut self, source: &str) -> Self {
+    pub fn with_blank_lines(self, source: &str) -> Self {
+        self.with_blank_lines_inner(source, false)
+    }
+
+    /// [`Self::with_blank_lines`] 的内部实现：`has_next_block` 为真时表示 `source` 是文档中间的
+    /// 局部切片（以分隔空行结尾，紧随其后还有下一块），忽略末尾换行符之后的虚空行。
+    pub(super) fn with_blank_lines_inner(mut self, source: &str, has_next_block: bool) -> Self {
+        self.blank_lines = true;
         let starts: Vec<usize> = std::iter::once(0)
             .chain(memchr::memchr_iter(b'\n', source.as_bytes()).map(|i| i + 1))
             .collect();
@@ -28,7 +35,12 @@ impl Markdown {
             }
             covered[first..=last].fill(true);
         }
-        let slots: Vec<usize> = (0..starts.len())
+        let limit = if has_next_block {
+            starts.len().saturating_sub(1)
+        } else {
+            starts.len()
+        };
+        let slots: Vec<usize> = (0..limit)
             .filter(|&l| !covered[l] && blank(l) && (l == 0 || blank(l - 1)))
             .collect();
         if slots.is_empty() {

@@ -59,11 +59,13 @@ pub struct SettingsState {
     pub changed: Vec<Setting>,
     /// 随状态列出的行。
     ///
-    /// 格式化页的语言在打开设置时确定，打开期间只会增加，不会减少，已列出的语言也不换位置；
-    /// Vim 的冲突键随 Vim 模式和键位表的变化重新算。
+    /// 格式化页的语言在打开设置后、后台第一次算出工具选择时按语言表的顺序排列，此后只会增加，
+    /// 不会减少，已列出的语言也不换位置；Vim 的冲突键随 Vim 模式和键位表的变化重新算。
     pub listed: Listed,
     /// 格式化页每一行（格式化工具、修复工具）上显示的内容。
     pub tool_rows: Vec<(Setting, FormatRow)>,
+    /// 格式化页各行所用的工具选择，在后台计算。
+    pub tool_plans: formatters::ToolPlans,
     /// 正在后台查询 WSL 发行版中装了哪些工具，查完后重新计算各行。
     pub probing: bool,
     /// 分类栏顶部的搜索框：按设置项的名称和说明搜索，不为空白时正文换成搜索结果。
@@ -221,8 +223,9 @@ impl App {
         self.settings.hover = None;
         self.settings.listed = Listed::default();
         self.refresh_vim_key_rows();
-        // 每次打开设置重新查询发行版中的工具：其间新安装的能列出来。
+        // 每次打开设置重新检查项目中的文件和发行版中的工具，其间新增的配置、新安装的工具随之列出。
         self.format.formatter.forget_wsl();
+        self.settings.tool_plans.restart(self.format_dir());
         self.refresh_format_rows(true);
         self.settings.integration = crate::shell_integration::read();
         self.refresh_changed_settings();
@@ -826,9 +829,14 @@ impl App {
             None if setting == Setting::TerminalShell => self.config.terminal_shell.clone(),
             None if setting == Setting::GitPath => self.config.git_path.clone(),
             None if setting == Setting::LatexPath => self.config.latex_path.clone(),
+            None if setting.is_ai_text() => ai_text(&mut self.config, setting).clone(),
             None => self.font_setting(setting).clone(),
         };
-        let mut field = TextField::default();
+        // 输入密钥时同样以圆点代替明文。
+        let mut field = match setting {
+            Setting::AiApiKey => TextField::masked(),
+            _ => TextField::default(),
+        };
         field.set_text(current.as_deref().unwrap_or(""));
         field.select_all();
 
@@ -960,6 +968,18 @@ impl App {
                 self.settings.error = None;
                 self.focus = Focus::Settings;
                 self.set_latex_path(value);
+            }
+            None if setting.is_ai_text() => {
+                self.settings.editing = None;
+                self.settings.editing_original = None;
+                self.settings.error = None;
+                self.focus = Focus::Settings;
+                let field = ai_text(&mut self.config, setting);
+                if *field != value {
+                    *field = value;
+                    self.save_config();
+                }
+                self.request_redraw();
             }
             None => self.settings_commit_font(setting, value),
         }
@@ -1226,6 +1246,13 @@ impl App {
         self.request_redraw();
     }
 
+    /// 设置调用模型的接口协议。
+    pub(in crate::app) fn set_ai_protocol(&mut self, choice: winc_config::AiProtocol) {
+        self.config.ai_protocol = Some(choice);
+        self.save_config();
+        self.request_redraw();
+    }
+
     /// 设置 Vim 模式下无名寄存器与系统剪贴板的同步方式。
     pub(in crate::app) fn set_vim_clipboard(&mut self, choice: winc_config::VimClipboard) {
         self.config.vim_clipboard = Some(choice);
@@ -1347,6 +1374,16 @@ pub(crate) struct Store {
     pub(crate) state_requests: u64,
     /// 配置的版本号：本窗口每写入一次配置文件加 1，应用层据此把新配置发给其他窗口。
     pub(crate) config_rev: u64,
+}
+
+/// 返回调用模型的一项文本设置（接口地址、模型名或密钥）在配置中的值；`setting` 须满足
+/// [`Setting::is_ai_text`]。
+fn ai_text(config: &mut Config, setting: Setting) -> &mut Option<String> {
+    match setting {
+        Setting::AiBaseUrl => &mut config.ai_base_url,
+        Setting::AiModel => &mut config.ai_model,
+        _ => &mut config.ai_api_key,
+    }
 }
 
 #[cfg(test)]

@@ -215,6 +215,7 @@ fn draw_nav_row(
         SettingsPage::Format => icons::format(frame, icon, p.text, layout.nav),
         SettingsPage::Git => icons::git(frame, icon, 1.0, p.text, layout.nav),
         SettingsPage::Terminal => icons::console(frame, icon, p.text, layout.nav),
+        SettingsPage::Ai => icons::sparkle(frame, icon, p.text, layout.nav),
         SettingsPage::Modules => icons::modules(frame, icon, p.text, layout.nav),
         SettingsPage::Keys => icons::keyboard(frame, icon, p.text, layout.nav),
         SettingsPage::About => icons::about(frame, icon, p.text, layout.nav),
@@ -421,10 +422,8 @@ fn draw_row(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
 
     match row.setting.control() {
         SettingControl::Font => draw_field(app, frame, row, clip),
-        // 「Git 程序」「LaTeX 程序」是填写的路径，没有可选的菜单：始终画成输入框。
-        SettingControl::Command
-            if editing || matches!(row.setting, Setting::GitPath | Setting::LatexPath) =>
-        {
+        // 程序路径、接口地址等填写的文本没有可选的菜单，始终绘制为输入框。
+        SettingControl::Command if editing || row.setting.is_text_field() => {
             draw_field(app, frame, row, clip)
         }
         SettingControl::Command => {
@@ -775,6 +774,16 @@ fn draw_field(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect
         Setting::TerminalShell => (None, t!("settings-terminal-shell-placeholder")),
         Setting::GitPath => (app.config.git_path.clone(), t!("settings-git-path-auto")),
         Setting::LatexPath => (app.config.latex_path.clone(), latex_auto.as_str()),
+        Setting::AiBaseUrl => (
+            app.config.ai_base_url.clone(),
+            t!("settings-ai-base-url-default"),
+        ),
+        Setting::AiModel => (app.config.ai_model.clone(), t!("settings-ai-model-unset")),
+        // 密钥不显示明文，只显示末尾几位，用于区分不同的密钥。
+        Setting::AiApiKey => (
+            app.config.ai_api_key.as_deref().map(masked),
+            t!("settings-ai-api-key-unset"),
+        ),
         _ => (
             app.config.editor_font.clone(),
             winc_render::DEFAULT_EDITOR_FONT,
@@ -1151,4 +1160,12 @@ fn outline(frame: &mut Frame<'_>, color: Color, rect: Rect, radius: f32, clip: R
     let inner = rect.inset(0.5, 0.5);
     let shapes = icons::rounded_outline(inner.x, inner.y, inner.w, inner.h, radius - 0.5);
     frame.stroke(&shapes, 1.0, color, clip);
+}
+
+/// 返回密钥 `key` 的显示文本：8 个圆点加末尾 4 个字符；不超过 8 个字符时只显示圆点。
+fn masked(key: &str) -> String {
+    let count = key.chars().count();
+    let shown = if count > 8 { 4 } else { 0 };
+    let tail: String = key.chars().skip(count - shown).collect();
+    format!("{}{tail}", "•".repeat(8))
 }

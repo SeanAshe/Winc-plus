@@ -110,3 +110,46 @@ fn broken_files_report_why() {
     assert!(!is_pdf(Path::new("报告.pdfx")));
     assert!(supported());
 }
+
+/// 内存中的 PDF 与按路径打开的结果相同，可以渲染；内容无效时说明原因。
+#[test]
+fn a_pdf_in_memory_opens_like_the_file() {
+    let bytes = sample_pdf(&[(612, 792, 0), (200, 200, 90)]);
+    let path = write("memory.pdf", &bytes);
+    let read = read(&path).unwrap();
+    assert_eq!(read, bytes);
+    let doc = Document::from_bytes(&read).unwrap();
+    assert_eq!(doc.pages(), Document::open(&path).unwrap().pages());
+    assert!(doc.render(0, 61, 79).is_ok());
+    assert_eq!(
+        Document::from_bytes(b"not a pdf").err().as_deref(),
+        Some(winc_i18n::t!("preview-pdf-invalid"))
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
+/// 管道和超过大小上限的文件不读入，说明原因。
+#[test]
+fn a_pdf_over_the_size_limit_is_not_read() {
+    let pipe = write("pipe.pdf", b"");
+    std::fs::remove_file(&pipe).unwrap();
+    let made = std::process::Command::new("mkfifo")
+        .arg(&pipe)
+        .status()
+        .unwrap();
+    assert!(made.success());
+    assert_eq!(
+        read(&pipe).err().as_deref(),
+        Some(winc_i18n::t!("preview-pdf-not-regular-file"))
+    );
+    let _ = std::fs::remove_file(&pipe);
+
+    let path = write("huge.pdf", b"");
+    let file = std::fs::File::options().write(true).open(&path).unwrap();
+    file.set_len(MAX_FILE + 1).unwrap();
+    assert_eq!(
+        read(&path).err().as_deref(),
+        Some(winc_i18n::t!("preview-pdf-too-large"))
+    );
+    let _ = std::fs::remove_file(&path);
+}

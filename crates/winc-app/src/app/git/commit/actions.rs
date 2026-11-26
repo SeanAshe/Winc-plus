@@ -680,9 +680,10 @@ impl App {
         summaries.get(root).map(read)
     }
 
-    /// 确认后回滚提交视图中的 `paths`：都在第一项所在的仓库中，可以不是当前仓库。
+    /// 确认后回滚 `paths`：都在第一项所在的仓库中，可以不是当前仓库。
     ///
-    /// 暂存区视图中回滚到暂存区，略过没有未暂存更改的文件；勾选式下回滚到 `HEAD`。
+    /// 暂存区视图中回滚到暂存区，略过没有未暂存更改的文件；只选了冲突的文件时回滚到 `HEAD`，冲突的
+    /// 文件在暂存区中没有可还原的版本。勾选式下回滚到 `HEAD`。
     pub(in crate::app) fn confirm_commit_rollback(&mut self, paths: Vec<PathBuf>) {
         if !self.git.commit.staging() {
             self.confirm_rollback(paths);
@@ -691,13 +692,21 @@ impl App {
         let Some((root, _)) = paths.first().and_then(|path| self.repo_of(path)) else {
             return;
         };
-        let pick = |status: &Status| -> Vec<PathBuf> {
-            (status.entries.iter())
-                .filter(|e| e.unstaged.is_some() && !e.conflicted() && paths.contains(&e.path))
-                .map(|e| e.path.clone())
-                .collect()
+        let pick = |status: &Status| {
+            let paths_where = |keep: fn(&Entry) -> bool| -> Vec<PathBuf> {
+                (status.entries.iter())
+                    .filter(|e| keep(e) && paths.contains(&e.path))
+                    .map(|e| e.path.clone())
+                    .collect()
+            };
+            let unstaged = paths_where(|e| e.unstaged.is_some() && !e.conflicted());
+            (unstaged, paths_where(Entry::conflicted))
         };
-        let unstaged = self.status_in(&root, pick).unwrap_or_default();
+        let (unstaged, conflicts) = self.status_in(&root, pick).unwrap_or_default();
+        if unstaged.is_empty() && !conflicts.is_empty() {
+            self.confirm_rollback(conflicts);
+            return;
+        }
         if unstaged.is_empty() {
             self.flash(t!("git-rollback-nothing-unstaged"));
             return;
@@ -706,7 +715,7 @@ impl App {
     }
 
     /// 确认后把 `paths` 回滚到 `HEAD`。
-    pub(in crate::app) fn confirm_rollback(&mut self, paths: Vec<PathBuf>) {
+    fn confirm_rollback(&mut self, paths: Vec<PathBuf>) {
         self.confirm_rollback_to(paths, RollbackTo::Head);
     }
 
@@ -848,11 +857,12 @@ impl App {
                         let name = winc_editor::display_name(&root);
                         match result {
                             Ok(oid) => self.flash(t!("git-commit-done-in", name = name, oid = oid)),
-                            Err(e) => self.notify_with(
-                                NoticeKind::Error,
-                                t!("git-commit-failed-in", name = name, error = e),
-                                NoticeAction::GitOutput,
-                            ),
+                            Err(e) => {
+                                let message = t!("git-commit-failed-in", name = name, error = e);
+                                let action = self.git_trust_action(Some(&root));
+                                let action = action.unwrap_or(NoticeAction::GitOutput);
+                                self.notify_with(NoticeKind::Error, message, action);
+                            }
                         }
                         continue;
                     }
@@ -909,10 +919,12 @@ impl App {
                             self.git.commit.drop_push_intent();
                             self.git.commit.committed_with.clear();
                             self.git.commit.others_left = 0;
+                            let action = self.git_trust_action(Some(&root));
+                            let action = action.unwrap_or(NoticeAction::GitOutput);
                             self.notify_with(
                                 NoticeKind::Error,
                                 t!("git-commit-failed", error = e),
-                                NoticeAction::GitOutput,
+                                action,
                             );
                             // 失败前可能已经提交了其他仓库：重读它们的状态。
                             if self.commit_shows_others() {
@@ -925,6 +937,7 @@ impl App {
                 Outcome::Staged(result, root) => self.staging_finished(result, &root),
                 Outcome::OtherStaged(result) => self.other_staging_finished(result),
                 Outcome::TodoChecked(count, root) => self.todo_checked(count, &root),
+                Outcome::Generated(id, result) => self.generated(id, result),
                 Outcome::Reformatted(count, failed, root) => self.reformatted(count, failed, &root),
                 Outcome::IndexText(root, path, version, text) => {
                     self.index_text_arrived(&root, path, version, text);
@@ -1011,6 +1024,7 @@ impl App {
         self.git.commit.other_stage_running = old.other_stage_running;
         self.git.commit.collapsed = old.collapsed;
         self.git.commit.drafts = old.drafts;
+        self.git.commit.generating = old.generating.carried();
         // 保留底部各组的展开状态和高度、卡片和「上一次提交」的显示比例：切换仓库后从原状态过渡。
         self.git.commit.quiet_open = old.quiet_open;
         self.git.commit.stashes = Drawer {

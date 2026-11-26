@@ -214,3 +214,47 @@ fn shoot_compare() {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+/// 命令行上的 `--diff`：每对文件开一个差异标签，左侧是第一个文件；内容相同时同样打开并提示；
+/// 读不了的一对说明原因，不开标签。
+#[test]
+fn files_given_with_diff_open_side_by_side() {
+    use crate::cli::Diff;
+    let dir = sample_folder("compare-cli");
+    std::fs::write(dir.join("old.txt"), "a\nb\n").unwrap();
+    std::fs::write(dir.join("new.txt"), "a\nc\n").unwrap();
+    std::fs::write(dir.join("same.txt"), "a\nb\n").unwrap();
+    std::fs::write(dir.join("binary.bin"), [0u8, 1, 2, 0]).unwrap();
+    let mut app = app_with(&dir, false);
+    let diff = |left: &str, right: &str| Diff {
+        left: dir.join(left),
+        right: dir.join(right),
+    };
+
+    app.open_diffs(&[diff("old.txt", "new.txt")]);
+    let doc = app.editor.active().unwrap();
+    assert_eq!(doc.title.as_deref(), Some("old.txt ↔ new.txt"));
+    assert_eq!(
+        (
+            active_view(&app).old.title.as_str(),
+            active_view(&app).new.title.as_str()
+        ),
+        ("old.txt", "new.txt")
+    );
+
+    app.open_diffs(&[diff("old.txt", "same.txt")]);
+    let doc = app.editor.active().unwrap();
+    assert_eq!(doc.title.as_deref(), Some("old.txt ↔ same.txt"));
+    assert!(active_view(&app).is_identical());
+    assert_eq!(
+        app.status.message.as_deref(),
+        Some("「old.txt」与「same.txt」相同")
+    );
+
+    let tabs = app.editor.documents.len();
+    app.open_diffs(&[diff("old.txt", "binary.bin")]);
+    assert_eq!(app.editor.documents.len(), tabs);
+    let notice = app.notice.text.take().unwrap_or_default();
+    assert!(notice.contains("binary.bin"), "{notice}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

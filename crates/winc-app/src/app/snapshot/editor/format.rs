@@ -62,6 +62,25 @@ fn text(app: &App) -> String {
 }
 
 #[test]
+fn a_tab_closed_while_its_tool_is_chosen_is_not_formatted() {
+    let dir = format_folder("format-closed-while-planning");
+    let mut app = app_with(&dir, false);
+    let file = dir.join("src/main.rs");
+    app.open_path(&file);
+    let id = app.editor.active().unwrap().id;
+    let rust = winc_syntax::find("rust").unwrap();
+    let plan = winc_editor::format::Plan::new(rust, &file, None, Some("cat")).unwrap();
+    app.plan_formatting(id, plan);
+    // 选择工具期间同样算作正在格式化：自动保存等到格式化结束。
+    assert!(app.is_formatting(id));
+
+    app.cancel_format(id);
+    assert!(!app.is_formatting(id));
+    app.poll_formatting();
+    assert_eq!(app.formatting_count(), 0);
+}
+
+#[test]
 fn formatting_replaces_the_text_as_one_undo_step() {
     let dir = format_folder("format-apply");
     let mut app = app_with(&dir, false);

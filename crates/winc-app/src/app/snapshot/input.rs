@@ -78,3 +78,50 @@ fn composition_follows_the_focus() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 回归：组字时不显示光标，在输入法中移动光标后无法确认位置。
+#[test]
+fn the_composition_caret_follows_the_input_method() {
+    use winit::event::Ime;
+
+    let dir = sample_folder("ime-caret");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    paint(&mut app);
+    let at = |app: &mut App, cursor: Option<(usize, usize)>| {
+        app.on_ime(Ime::Preedit("nihao".into(), cursor));
+        paint(app);
+        app.ime.cursor.unwrap().x
+    };
+    let (start, middle, end) = (
+        at(&mut app, Some((0, 0))),
+        at(&mut app, Some((2, 2))),
+        at(&mut app, Some((5, 5))),
+    );
+    let cell = app.metrics.cell;
+    assert!(
+        (middle - start - 2.0 * cell).abs() < 0.5,
+        "{start} {middle}"
+    );
+    assert!((end - start - 5.0 * cell).abs() < 0.5, "{start} {end}");
+    // 输入法报告一段范围时取其终点；要求隐藏光标时候选框留在末尾。
+    assert!((at(&mut app, Some((0, 2))) - middle).abs() < 0.5);
+    assert!((at(&mut app, None) - end).abs() < 0.5);
+
+    // 查找条的输入框：同样随输入法的光标移动。
+    app.on_ime(Ime::Preedit(String::new(), None));
+    app.open_search(false);
+    let at = |app: &mut App, cursor: Option<(usize, usize)>| {
+        app.on_ime(Ime::Preedit("nihao".into(), cursor));
+        paint(app);
+        app.ime.cursor.unwrap().x
+    };
+    let (start, middle, end) = (
+        at(&mut app, Some((0, 0))),
+        at(&mut app, Some((2, 2))),
+        at(&mut app, Some((5, 5))),
+    );
+    assert!(start < middle && middle < end, "{start} {middle} {end}");
+    assert!((at(&mut app, None) - end).abs() < 0.5);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

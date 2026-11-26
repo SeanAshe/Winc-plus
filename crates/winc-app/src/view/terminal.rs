@@ -443,16 +443,16 @@ fn draw_content(app: &mut App, frame: &mut Frame<'_>, focused: bool) {
         ""
     };
     let start = preedit_x(x, preedit, cell, view.right());
-    let composing = !preedit.is_empty();
-    if focused {
-        // 候选窗对齐组字文字的左边；组字文字超出左边界时对齐可见范围。
-        app.ime.cursor = Some(Rect::new(start.max(view.x), y, cell, lh));
-    }
-    if composing {
+    let mut anchor = start;
+    if !preedit.is_empty() {
         let baseline = baseline_in(at, ascent, descent);
-        draw_preedit(app, frame, (start, y), baseline, view);
+        anchor = draw_preedit(app, frame, (start, y), baseline, view).unwrap_or(start);
     } else if cursor.visible && tab.settle.is_none() {
         draw_cursor(app, frame, &colors, tab, at, focused, view);
+    }
+    if focused {
+        // 候选窗对齐组字中的光标，没有光标时对齐组字文字的左边；超出左边界时对齐可见范围。
+        app.ime.cursor = Some(Rect::new(anchor.max(view.x), y, cell, lh));
     }
 }
 

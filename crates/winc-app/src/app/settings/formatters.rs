@@ -1,19 +1,102 @@
 //! 设置里「格式化」一页：按语言列出的工具和命令、自动选择、保存时跳过、加减语言。
 
+use std::collections::HashMap;
+use std::sync::mpsc::{self, Receiver, Sender};
+
+use winc_editor::format::Survey;
 use winc_i18n::t;
 
 use super::*;
 
+/// 格式化页一行的工具选择所对应的键：（任务，语言 ID，设置中写的命令）。没有写命令时为自动选择。
+type PlanKey = (Task, &'static str, Option<String>);
+
+/// 后台送回的一批工具选择：发出计算时的轮次（见 [`ToolPlans::round`]），以及各项结果。
+type Computed = (u64, Vec<(PlanKey, Chosen)>);
+
+/// 格式化页各行所用的工具选择：在后台线程上计算，界面线程只读取，尚未算出的按未知显示。
+///
+/// 打开设置时清空，重新检查项目中的文件；设置打开期间只补算缺少的选择。
+#[derive(Debug)]
+pub struct ToolPlans {
+    /// 选择所依据的目录（见 [`App::format_dir`]）。
+    dir: PathBuf,
+    /// 当前的轮次：每次清空时加 1，此前发出的计算送回的结果作废。
+    round: u64,
+    /// 已算出的选择。
+    plans: HashMap<PlanKey, Chosen>,
+    /// 是否有一次计算正在后台进行；同时只进行一次。
+    running: bool,
+    /// 后台送回结果的通道。
+    channel: (Sender<Computed>, Receiver<Computed>),
+}
+
+impl Default for ToolPlans {
+    fn default() -> Self {
+        ToolPlans {
+            dir: PathBuf::new(),
+            round: 0,
+            plans: HashMap::new(),
+            running: false,
+            channel: mpsc::channel(),
+        }
+    }
+}
+
+impl ToolPlans {
+    /// 丢弃已算出的选择，此后按目录 `dir` 重新计算。
+    pub(super) fn restart(&mut self, dir: PathBuf) {
+        self.dir = dir;
+        self.round += 1;
+        self.plans.clear();
+    }
+
+    /// 是否已经算出各语言的自动选择：第一次计算总是包含全部语言的自动选择。
+    fn has_auto(&self) -> bool {
+        self.plans.keys().any(|(_, _, command)| command.is_none())
+    }
+
+    /// 返回 `language_id` 的 `task` 使用命令 `command` 时的选择；尚未算出时返回 `None`。
+    ///
+    /// `command` 为 `None` 表示自动选择。
+    fn get(&self, task: Task, language_id: &'static str, command: Option<&str>) -> Option<&Chosen> {
+        let key = (task, language_id, command.map(str::to_owned));
+        self.plans.get(&key)
+    }
+}
+
+#[cfg(test)]
+impl ToolPlans {
+    /// 标记为有一次计算正在后台进行，使缺少的选择暂不交给后台（测试用：模拟结果尚未送回）。
+    #[cfg_attr(not(unix), allow(dead_code))] // 只有 Unix 上的格式化测试用到
+    pub(in crate::app) fn hold(&mut self) {
+        self.running = true;
+    }
+}
+
+/// 后台为格式化页的一行算出的工具选择。
+#[derive(Debug, Clone)]
+struct Chosen {
+    /// 选择的结果。
+    plan: Result<Plan, FormatError>,
+    /// 项目自带的程序或以路径指定的程序是否存在；在 `PATH` 中查找的程序为 `None`，由
+    /// [`winc_editor::format::Formatter::installed`] 回答。
+    present: Option<bool>,
+}
+
 impl App {
-    /// 重新计算格式化页每一行上显示的内容；打开设置、修改命令、取到用户 shell 的环境之后调用。
+    /// 重新计算格式化页每一行上显示的内容；打开设置、修改命令和后台送回结果之后调用。
     ///
     /// `list_new` 为 `true` 时先把应列出的新语言补到列表中（见 [`App::list_new_languages`]）。
-    /// 项目设置只读一次，两步共用。
+    /// 项目设置只读一次，两步共用。工具选择取自后台计算的结果，缺少的交给后台补算。
     pub(super) fn refresh_format_rows(&mut self, list_new: bool) {
-        let file = self.format_dir().join("_");
+        let dir = self.format_dir();
+        if self.settings.tool_plans.dir != dir {
+            self.settings.tool_plans.restart(dir.clone());
+        }
         let project = self.project_format().unwrap_or_default();
         if list_new {
-            self.list_new_languages(&file, &project);
+            self.list_new_languages(&project);
         }
         let listed = &self.settings.listed;
         let rows = (listed.format.iter().map(|&id| (Task::Format, id)))
@@ -22,33 +105,117 @@ impl App {
             .filter_map(|(task, id)| {
                 let command = task_commands(&project, task).get(id).cloned();
                 let language = winc_syntax::find(id)?;
-                let auto = self.auto_plan(task, language, &file);
+                let auto = self.auto_plan(task, language);
                 let removable = command.is_none() && !matches!(auto, Some(Ok(_)));
-                let mut row = self.tool_row(task, language, &file, command, auto);
+                let mut row = self.tool_row(task, language, command, auto);
                 row.removable = removable;
                 Some((tool_setting_of(task, id), row))
             })
             .collect();
-        self.probe_wsl_tools(&file);
+        self.plan_tools(&project);
+        self.probe_wsl_tools(&dir);
+    }
+
+    /// 在后台计算格式化页缺少的工具选择：每种语言的自动选择，以及已列出的语言设置中写的命令。
+    ///
+    /// 选择工具要逐级检查项目中的文件，耗时与目录的层数和文件系统的延迟成正比，不能在界面线程上
+    /// 进行。同时只进行一次计算，结束后（[`App::poll_tool_plans`]）再补算其间新缺少的。
+    fn plan_tools(&mut self, project: &Config) {
+        let plans = &self.settings.tool_plans;
+        if plans.running {
+            return;
+        }
+        let listed = &self.settings.listed;
+        let mut wanted: Vec<PlanKey> = Vec::new();
+        for task in [Task::Format, Task::Fix] {
+            let languages = winc_syntax::languages().iter();
+            wanted.extend(languages.map(|language| (task, language.id, None)));
+            let ids = match task {
+                Task::Format => &listed.format,
+                Task::Fix => &listed.fix,
+            };
+            let configured = ids.iter().filter_map(|&id| {
+                let command = (task_commands(project, task).get(id))
+                    .or_else(|| task_commands(&self.config, task).get(id))?;
+                Some((task, id, Some(command.clone())))
+            });
+            wanted.extend(configured);
+        }
+        wanted.retain(|key| !plans.plans.contains_key(key));
+        if wanted.is_empty() {
+            return;
+        }
+
+        let file = plans.dir.join("_");
+        let round = plans.round;
+        let sender = plans.channel.0.clone();
+        let root = self.editor.root().map(Path::to_path_buf);
+        let formatter = self.format.formatter.clone();
+        self.settings.tool_plans.running = true;
+        self.spawn_blocking_then(UserEvent::ToolsPlanned, move || {
+            // 各语言共用一次查询：同一级目录中的同一个文件只检查一次。
+            let mut survey = Survey::default();
+            let chosen = (wanted.into_iter())
+                .filter_map(|key| {
+                    let (task, id, command) = &key;
+                    let language = winc_syntax::find(id)?;
+                    let plan =
+                        survey.plan(*task, language, &file, root.as_deref(), command.as_deref());
+                    let present = match &plan {
+                        Ok(plan) if !matches!(plan.program, Program::Search(_)) => {
+                            Some(formatter.locate(&plan.program).is_some())
+                        }
+                        _ => None,
+                    };
+                    Some((key, Chosen { plan, present }))
+                })
+                .collect();
+            let _ = sender.send((round, chosen));
+        });
+    }
+
+    /// 接收后台算出的工具选择，并重新计算格式化页的各行；属于已作废的轮次的结果丢弃。
+    ///
+    /// 第一次算出自动选择之前，列表中只有写过命令的语言；算出后补上项目在用的语言，
+    /// 并按语言表的顺序排列一次。
+    pub(in crate::app) fn poll_tool_plans(&mut self) {
+        let plans = &mut self.settings.tool_plans;
+        let first = !plans.has_auto();
+        while let Ok((round, chosen)) = plans.channel.1.try_recv() {
+            if round == plans.round {
+                plans.plans.extend(chosen);
+            }
+        }
+        plans.running = false;
+        let first = first && plans.has_auto();
+        if self.settings.open {
+            self.refresh_format_rows(true);
+            if first {
+                let order = |id: &&str| winc_syntax::languages().iter().position(|l| l.id == *id);
+                self.settings.listed.format.sort_by_key(order);
+                self.settings.listed.fix.sort_by_key(order);
+            }
+            self.request_redraw();
+        }
     }
 
     /// 打开的目录位于 WSL 发行版中时，在后台查询还不知道是否安装的工具，查完后重新计算各行。
     ///
     /// 查询发行版要启动进程，不能在界面线程上等待；同时只进行一轮。
-    fn probe_wsl_tools(&mut self, file: &Path) {
-        if self.settings.probing || winc_editor::wsl::locate_here(file).is_none() {
+    /// `dir` 是选择工具所依据的目录。
+    fn probe_wsl_tools(&mut self, dir: &Path) {
+        if self.settings.probing || winc_editor::wsl::locate_here(dir).is_none() {
             return;
         }
-        let root = self.editor.root();
         let formatter = &self.format.formatter;
         let listed = &self.settings.listed;
         let rows = (listed.format.iter().map(|&id| (Task::Format, id)))
             .chain(listed.fix.iter().map(|&id| (Task::Fix, id)));
         let unknown: Vec<Plan> = rows
             .filter_map(|(task, id)| {
-                let language = winc_syntax::find(id)?;
-                let plan = Plan::for_task(task, language, file, root, None).ok()?;
-                (plan.is_guess() && formatter.peek(&plan).is_none()).then_some(plan)
+                let chosen = self.settings.tool_plans.get(task, id, None)?;
+                let plan = chosen.plan.as_ref().ok()?;
+                (plan.is_guess() && formatter.peek(plan).is_none()).then(|| plan.clone())
             })
             .collect();
         let Some(proxy) = self.link.proxy.clone().filter(|_| !unknown.is_empty()) else {
@@ -69,15 +236,15 @@ impl App {
     /// 列出应列出的语言，分为三类：设置里写过命令的语言、项目设置里写了命令的语言，以及在当前
     /// 项目中会用上工具的语言。第三类不看用户设置也会列出，且不能从列表中移除；是否会用上工具由
     /// [`App::auto_plan`] 判断，格式化看能否自动选中工具，修复看项目里有没有在用的迹象。其余语言
-    /// 通过「添加语言…」加入。`file` 是判断项目工具用的虚拟路径；新语言追加在后面，已列出的不动。
-    fn list_new_languages(&mut self, file: &Path, project: &Config) {
+    /// 通过「添加语言…」加入。新语言追加在后面，已列出的不动。
+    fn list_new_languages(&mut self, project: &Config) {
         for task in [Task::Format, Task::Fix] {
             let found: Vec<&'static str> = winc_syntax::languages()
                 .iter()
                 .filter(|l| {
                     task_commands(&self.config, task).contains_key(l.id)
                         || task_commands(project, task).contains_key(l.id)
-                        || matches!(self.auto_plan(task, l, file), Some(Ok(_)))
+                        || matches!(self.auto_plan(task, l), Some(Ok(_)))
                 })
                 .map(|l| l.id)
                 .collect();
@@ -90,27 +257,31 @@ impl App {
         }
     }
 
-    /// 返回不写命令时 `language` 的 `task` 自动选用的工具；`file` 是用于判断项目工具的
-    /// 虚拟文件路径。
+    /// 返回不写命令时 `language` 的 `task` 自动选用的工具。
     ///
-    /// 项目中看不出用什么工具时，看装了哪个工具。尚不能确定（还没取到用户 shell 的环境）时
-    /// 返回 `None`，取到之后再计算一遍。
-    fn auto_plan(
-        &self,
-        task: Task,
-        language: &Language,
-        file: &Path,
-    ) -> Option<Result<Plan, FormatError>> {
-        match Plan::for_task(task, language, file, self.editor.root(), None) {
-            Ok(plan) if plan.is_guess() => self.format.formatter.peek(&plan),
-            plan => Some(plan),
+    /// 项目中没有迹象时按已安装的工具选择。后台尚未算出选择或尚未取得用户 shell 的环境时
+    /// 无法确定，返回 `None`，结果送回后重新计算。不访问磁盘。
+    fn auto_plan(&self, task: Task, language: &Language) -> Option<Result<Plan, FormatError>> {
+        match &self.settings.tool_plans.get(task, language.id, None)?.plan {
+            Ok(plan) if plan.is_guess() => self.format.formatter.peek(plan),
+            plan => Some(plan.clone()),
+        }
+    }
+
+    /// 返回 `plan` 要运行的程序是否已安装；不知道时返回 `None`。
+    ///
+    /// 不访问磁盘：在 `PATH` 中查找的程序按清单判断，其余取后台检查的结果 `chosen`。
+    fn tool_installed(&self, plan: &Plan, chosen: Option<&Chosen>) -> Option<bool> {
+        match plan.program {
+            Program::Search(_) => self.format.formatter.installed(&plan.program),
+            _ => chosen?.present,
         }
     }
 
     /// 返回自动选择工具时用于判断项目在用什么工具的目录。
     ///
     /// 优先取已打开的目录；没有时取当前文件所在的目录，再没有则为 `/`。
-    fn format_dir(&self) -> PathBuf {
+    pub(super) fn format_dir(&self) -> PathBuf {
         self.editor
             .root()
             .map(Path::to_path_buf)
@@ -123,18 +294,14 @@ impl App {
 
     /// 计算 `language` 的 `task` 工具行上显示的内容。
     ///
-    /// `file` 是用于判断项目工具的虚拟文件路径，`project` 是项目设置中写的命令，`auto` 是自动
-    /// 选用的工具（见 [`App::auto_plan`]）。
+    /// `project` 是项目设置中写的命令，`auto` 是自动选用的工具（见 [`App::auto_plan`]）。
     fn tool_row(
         &self,
         task: Task,
         language: &'static Language,
-        file: &Path,
         project: Option<String>,
         auto: Option<Result<Plan, FormatError>>,
     ) -> FormatRow {
-        let root = self.editor.root();
-        let formatter = &self.format.formatter;
         let presets_for = |id| presets(task, id);
         let auto_tool = match &auto {
             Some(Ok(plan)) => plan.auto.as_ref(),
@@ -221,8 +388,10 @@ impl App {
             ),
             None => (*name).to_owned(),
         });
+        let plans = &self.settings.tool_plans;
+        let chosen = plans.get(task, language.id, configured.map(String::as_str));
         let plan = match configured {
-            Some(command) => Some(Plan::for_task(task, language, file, root, Some(command))),
+            Some(_) => chosen.map(|chosen| chosen.plan.clone()),
             None => auto,
         };
         let (warning, install) = match plan {
@@ -244,7 +413,7 @@ impl App {
             Some(Ok(_)) if configured.is_some_and(|c| Plan::reads_file_from_disk(c)) => {
                 (Some(t!("format-tool-reads-disk").to_owned()), Vec::new())
             }
-            Some(Ok(plan)) if formatter.installed(&plan.program) == Some(false) => {
+            Some(Ok(plan)) if self.tool_installed(&plan, chosen) == Some(false) => {
                 let tool = plan.tool().into_owned();
                 let known =
                     matches!(plan.program, Program::Search(_)) && knows_how_to_install(&tool);
@@ -310,6 +479,7 @@ impl App {
             | Setting::GitOpenWorktree
             | Setting::GitLogPlacement
             | Setting::GitPullMode
+            | Setting::AiProtocol
             | Setting::DropFolder
             | Setting::FindInFiles
             | Setting::AutoSave
@@ -333,6 +503,7 @@ impl App {
                     Setting::VimKey(c) => MenuTarget::VimKey(c),
                     Setting::GitOpenWorktree => MenuTarget::OpenWorktree,
                     Setting::GitPullMode => MenuTarget::PullMode,
+                    Setting::AiProtocol => MenuTarget::AiProtocol,
                     Setting::GitLogPlacement => MenuTarget::LogPlacement,
                     Setting::DropFolder => MenuTarget::DropFolder,
                     Setting::FindInFiles => MenuTarget::SearchStyle,
@@ -355,7 +526,7 @@ impl App {
             Setting::FormatCommand(id) => (MenuTarget::Tool(Task::Format, id), row.control),
             Setting::FixCommand(id) => (MenuTarget::Tool(Task::Fix, id), row.control),
             Setting::TerminalShell => (MenuTarget::DefaultShell, row.control),
-            Setting::GitPath | Setting::LatexPath => return self.settings_start_editing(setting),
+            _ if setting.is_text_field() => return self.settings_start_editing(setting),
             Setting::Updates => return self.settings_check_updates(),
             Setting::ExportSettings => return self.pick(Pick::ExportSettings),
             Setting::ImportSettings => return self.pick(Pick::ImportSettings),

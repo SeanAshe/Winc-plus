@@ -82,8 +82,15 @@ winget install DEEIX-AI.Winc
 scoop bucket add extras; scoop install extras/winc
 ```
 
-On Arch Linux and Arch-based distributions such as CachyOS and Omarchy (x86_64), this command adds
-the signed repository and installs winc, which then updates with `sudo pacman -Syu`.
+On Arch Linux and Arch-based distributions such as CachyOS and Omarchy (x86_64), install winc from
+the official repository; it then updates with `sudo pacman -Syu`.
+
+```bash
+sudo pacman -S winc
+```
+
+To use the signed winc repository instead, run this command. It adds the repository ahead of the
+others so that pacman installs and updates winc from it; running it again reorders an earlier setup.
 
 ```bash
 curl --proto '=https' --tlsv1.2 -fLO https://winc.si/releases/arch/install-arch.sh && sudo bash install-arch.sh

@@ -472,13 +472,19 @@ fn the_branch_picker_lists_tags_and_checks_one_out() {
     let row = (rows(&app).iter()).position(|row| *row == BranchRow::Tag(v1));
     let row = row.unwrap();
 
-    // 行尾的菜单：签出，推送、删除、从远程删除。
+    // 行尾的菜单：签出，新建分支、合并、推送、复制名字、删除、从远程删除。
     app.overlays.picker.selected = row;
     app.open_branch_row_menu(MenuTarget::TagOps(v1));
     let commands: Vec<MenuCommand> = menu_commands(&app).into_iter().map(|(c, _)| c).collect();
     let ops = TagOp::ALL.map(|op| MenuCommand::PickerTag(Some(op), v1));
     assert_eq!(commands[0], MenuCommand::PickerTag(None, v1));
     assert_eq!(commands[1..], ops);
+    app.run_menu_command(MenuCommand::PickerTag(Some(TagOp::CopyName), v1));
+    assert_eq!(app.clipboard_text().as_deref(), Some("v1"));
+    assert_eq!(app.status.message.as_deref(), Some("已复制标签名「v1」"));
+    app.open_branch_picker(GitAnchor::Branch);
+    app.overlays.picker.selected = row;
+    app.open_branch_row_menu(MenuTarget::TagOps(v1));
     app.run_menu_command(MenuCommand::PickerTag(Some(TagOp::Push), v1));
     assert_eq!(
         output_of(&dir.join("bare.git"), &["tag", "--list"]).trim(),

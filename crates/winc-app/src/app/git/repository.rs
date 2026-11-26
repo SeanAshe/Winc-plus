@@ -228,6 +228,10 @@ impl App {
                 t!("git-op-tag-push", name = name.as_str()),
                 move |git, root| git.push_tag(root, &name),
             ),
+            TagOp::CopyName => {
+                self.flash(t!("git-tag-copied", name = name.as_str()));
+                self.set_clipboard(name, false);
+            }
             TagOp::Delete => self.confirm_log(LogConfirmed::DeleteTag(name, TagTarget::Local)),
             TagOp::DeleteRemote => {
                 self.confirm_log(LogConfirmed::DeleteTag(name, TagTarget::Remote));

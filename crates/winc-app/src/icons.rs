@@ -787,6 +787,23 @@ pub fn history(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: 
     frame.stroke(&shapes, RING_STROKE, color, clip);
 }
 
+/// 绘制「生成」图标，约 13×13：左下一个大的四角星，右上一个小的；星的四条边是向内凹的四分之一
+/// 圆弧。
+pub fn sparkle(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    let star = |x: f32, y: f32, r: f32| {
+        // 每条边以相邻两个角所夹的外侧顶点为圆心，从一个角画到另一个角。
+        [
+            Stroke::Arc(x + r, y - r, r, 0.5 * PI, PI),
+            Stroke::Arc(x - r, y - r, r, 0.0, 0.5 * PI),
+            Stroke::Arc(x - r, y + r, r, -0.5 * PI, 0.0),
+            Stroke::Arc(x + r, y + r, r, PI, 1.5 * PI),
+        ]
+    };
+    let mut shapes = star(cx - 1.0, cy + 1.0, 5.5).to_vec();
+    shapes.extend(star(cx + 4.0, cy - 4.0, 2.5));
+    frame.stroke(&shapes, STROKE, color, clip);
+}
+
 /// 绘制「并排比较」图标，约 12×11：一个圆角框，中央一道竖线分成左右两栏，两栏内各一道短横。
 pub fn compare(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
     let (l, r, t, b) = (cx - 6.0, cx + 6.0, cy - 5.5, cy + 5.5);

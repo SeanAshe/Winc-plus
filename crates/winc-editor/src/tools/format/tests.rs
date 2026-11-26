@@ -699,6 +699,94 @@ fn fixers_are_only_picked_when_the_project_uses_them() {
     );
 }
 
+/// 为每种语言选择格式化工具和修复工具，返回各次选择结果的完整描述。
+fn plan_everything(
+    mut plan: impl FnMut(Task, &Language) -> Result<Plan, FormatError>,
+) -> Vec<String> {
+    let tasks = [Task::Format, Task::Fix];
+    (tasks.into_iter())
+        .flat_map(|task| winc_syntax::languages().iter().map(move |l| (task, l)))
+        .map(|(task, language)| format!("{task:?} {}: {:?}", language.id, plan(task, language)))
+        .collect()
+}
+
+#[test]
+fn one_survey_for_every_language_chooses_what_separate_lookups_choose() {
+    let root = scratch("survey-same");
+    let deep = root.join("packages/app/src");
+    std::fs::create_dir_all(&deep).unwrap();
+    std::fs::write(root.join(".prettierrc"), "{}").unwrap();
+    std::fs::write(root.join("pyproject.toml"), "[tool.ruff]\n").unwrap();
+    // 更近一级的 Biome 遮蔽上层的 Prettier；ESLint 只在上层的依赖中声明。
+    std::fs::write(root.join("packages/app/biome.json"), "{}").unwrap();
+    let package = r#"{"devDependencies": {"eslint": "^9"}}"#;
+    std::fs::write(root.join("packages/package.json"), package).unwrap();
+    std::fs::write(root.join("packages/app/.clang-format"), "").unwrap();
+    // 存放程序的目录存在、其中没有程序：覆盖先检查目录、再检查程序的情形。
+    std::fs::create_dir_all(root.join("node_modules/.bin")).unwrap();
+    let file = deep.join("_");
+    let separately =
+        |task, language: &Language| Plan::for_task(task, language, &file, Some(&root), None);
+
+    let mut survey = Survey::default();
+    let shared =
+        plan_everything(|task, language| survey.plan(task, language, &file, Some(&root), None));
+    assert_eq!(shared, plan_everything(separately));
+
+    // 同一轮选择沿用已查询的结果，其间新建、删除的文件由下一轮反映。
+    let typescript = language("typescript");
+    std::fs::write(deep.join(".prettierrc.json"), "{}").unwrap();
+    std::fs::remove_file(root.join("pyproject.toml")).unwrap();
+    let auto = |plan: Result<Plan, FormatError>| plan.unwrap().auto;
+    let stale = survey.plan(Task::Format, typescript, &file, Some(&root), None);
+    assert_eq!(auto(stale), Some(("Biome", Some("biome.json".to_owned()))));
+    let fresh = Survey::default().plan(Task::Format, typescript, &file, Some(&root), None);
+    assert_eq!(
+        auto(fresh),
+        Some(("Prettier", Some(".prettierrc.json".to_owned())))
+    );
+    let python = language("python");
+    let stale = survey.plan(Task::Fix, python, &file, Some(&root), None);
+    assert_eq!(
+        auto(stale),
+        Some(("Ruff", Some("pyproject.toml".to_owned())))
+    );
+    let fresh = Survey::default().plan(Task::Fix, python, &file, Some(&root), None);
+    assert!(matches!(fresh, Err(FormatError::Unset(_))));
+}
+
+#[test]
+fn choosing_tools_for_every_language_asks_about_each_file_once_per_level() {
+    let deep = scratch("survey-count").join("a/b/c/d");
+    std::fs::create_dir_all(&deep).unwrap();
+    let file = deep.join("_");
+    let mut survey = Survey::default();
+    let _ = plan_everything(|task, language| survey.plan(task, language, &file, None, None));
+
+    // 每级目录询问各个迹象文件、`package.json`、`pyproject.toml` 和三个存放程序的目录。存放
+    // 程序的目录不存在时不询问其中的程序，次数与 `PATHEXT` 中扩展名的个数无关。
+    let signs = PRESETS.iter().flat_map(|preset| match preset.auto {
+        Auto::When(signs) | Auto::OnlyWhen(signs) => signs,
+        _ => &[],
+    });
+    let names: std::collections::HashSet<&str> = signs
+        .filter_map(|sign| match sign {
+            tools::Sign::File(name) => Some(*name),
+            _ => None,
+        })
+        .collect();
+    let per_level = names.len() + 5;
+    let levels = deep.ancestors().count();
+    let asked = survey.asked();
+    assert!(
+        asked <= levels * per_level,
+        "{asked} > {levels} × {per_level}"
+    );
+
+    let _ = plan_everything(|task, language| survey.plan(task, language, &file, None, None));
+    assert_eq!(survey.asked(), asked);
+}
+
 #[cfg(unix)] // 用不带扩展名的脚本冒充工具；Windows 上程序要带 PATHEXT 中的扩展名
 #[test]
 fn eslint_fixes_come_from_its_json_results() {

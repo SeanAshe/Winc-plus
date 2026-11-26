@@ -249,6 +249,18 @@ pub enum Setting {
     FindInFiles,
     /// `git` 程序的路径（`git.path`）；未设置时在 `PATH` 里查找。
     GitPath,
+    /// 是否在提交视图中用模型生成提交信息（`git.generateCommitMessage`）。
+    GitGenerateCommitMessage,
+    /// 模型服务的地址（`ai.baseUrl`）；未设置时使用协议的官方地址。
+    AiBaseUrl,
+    /// 模型服务的密钥（`ai.apiKey`）。
+    AiApiKey,
+    /// 模型服务的接口协议（`ai.protocol`）。
+    AiProtocol,
+    /// 调用的模型（`ai.model`）；未设置时无法调用模型。
+    AiModel,
+    /// 等待模型响应的最长时间（`ai.timeout`，秒）。
+    AiTimeout,
     /// 终端模块的开关。
     TerminalModule,
     /// 远程模块的开关。
@@ -374,6 +386,10 @@ impl Setting {
             }
             S::GitCommitHistory => SettingsPage::Git,
             S::GitRememberCredentials => SettingsPage::Git,
+            S::GitGenerateCommitMessage => SettingsPage::Git,
+            S::AiBaseUrl | S::AiApiKey | S::AiProtocol | S::AiModel | S::AiTimeout => {
+                SettingsPage::Ai
+            }
             S::ExplorerMenu | S::FileAssociations => SettingsPage::General,
             S::ExportSettings | S::ImportSettings => SettingsPage::General,
             S::GitModule | S::TerminalModule | S::RemoteModule => SettingsPage::Modules,
@@ -479,6 +495,12 @@ impl Setting {
             S::GitScanDepth => "git.repositoryScanDepth",
             S::GitPullMode => "git.pull",
             S::GitPath => "git.path",
+            S::GitGenerateCommitMessage => "git.generateCommitMessage",
+            S::AiBaseUrl => "ai.baseUrl",
+            S::AiApiKey => "ai.apiKey",
+            S::AiProtocol => "ai.protocol",
+            S::AiModel => "ai.model",
+            S::AiTimeout => "ai.timeout",
             S::TerminalModule => "terminal.enabled",
             S::RemoteModule => "remote.enabled",
             S::GitTree | S::FormatCommand(_) | S::FixCommand(_) | S::AddLanguage => return None,
@@ -596,6 +618,12 @@ impl Setting {
             Setting::GitScanDepth => t!("settings-git-scan-depth"),
             Setting::GitPullMode => t!("settings-git-pull"),
             Setting::GitPath => t!("settings-git-path"),
+            Setting::GitGenerateCommitMessage => t!("settings-git-generate-commit-message"),
+            Setting::AiBaseUrl => t!("settings-ai-base-url"),
+            Setting::AiApiKey => t!("settings-ai-api-key"),
+            Setting::AiProtocol => t!("settings-ai-protocol"),
+            Setting::AiModel => t!("settings-ai-model"),
+            Setting::AiTimeout => t!("settings-ai-timeout"),
             Setting::LatexPath => t!("settings-latex-path"),
             Setting::TerminalModule => t!("settings-terminal-module"),
             Setting::RemoteModule => t!("settings-remote-module"),
@@ -708,6 +736,14 @@ impl Setting {
             Setting::GitScanDepth => Some(t!("settings-git-scan-depth-desc")),
             Setting::GitPullMode => Some(t!("settings-git-pull-desc")),
             Setting::GitPath => Some(t!("settings-git-path-desc")),
+            Setting::GitGenerateCommitMessage => {
+                Some(t!("settings-git-generate-commit-message-desc"))
+            }
+            Setting::AiBaseUrl => Some(t!("settings-ai-base-url-desc")),
+            Setting::AiApiKey => Some(t!("settings-ai-api-key-desc")),
+            Setting::AiProtocol => Some(t!("settings-ai-protocol-desc")),
+            Setting::AiModel => Some(t!("settings-ai-model-desc")),
+            Setting::AiTimeout => Some(t!("settings-ai-timeout-desc")),
             Setting::LatexPath => Some(t!("settings-latex-path-desc")),
             Setting::TerminalShell => Some(t!("settings-terminal-shell-desc")),
             Setting::TerminalCopyOnSelect => Some(t!("settings-terminal-copy-on-select-desc")),
@@ -740,7 +776,8 @@ impl Setting {
             | Setting::TerminalFontWeight
             | Setting::MarkdownSize
             | Setting::TabWidth
-            | Setting::GitScanDepth => SettingControl::Stepper,
+            | Setting::GitScanDepth
+            | Setting::AiTimeout => SettingControl::Stepper,
             Setting::Theme => SettingControl::Themes,
             Setting::LightTheme | Setting::DarkTheme => SettingControl::ThemeList,
             Setting::SystemTitleBar
@@ -790,6 +827,7 @@ impl Setting {
             | Setting::GitTree
             | Setting::GitStagingArea
             | Setting::GitCombinedDiff
+            | Setting::GitGenerateCommitMessage
             | Setting::ExplorerMenu
             | Setting::FileAssociations
             | Setting::TerminalModule
@@ -803,7 +841,10 @@ impl Setting {
             | Setting::FixCommand(_)
             | Setting::TerminalShell
             | Setting::GitPath
-            | Setting::LatexPath => SettingControl::Command,
+            | Setting::LatexPath
+            | Setting::AiBaseUrl
+            | Setting::AiModel
+            | Setting::AiApiKey => SettingControl::Command,
             Setting::SkipOnSave
             | Setting::Language
             | Setting::BackgroundImage
@@ -824,6 +865,7 @@ impl Setting {
             | Setting::GitOpenWorktree
             | Setting::GitLogPlacement
             | Setting::GitPullMode
+            | Setting::AiProtocol
             | Setting::Keymap => SettingControl::Choice,
             Setting::AddLanguage | Setting::AddFixLanguage => SettingControl::Action,
             Setting::KeySearch => SettingControl::Search,
@@ -836,6 +878,21 @@ impl Setting {
             Setting::Updates | Setting::KeyMatches => SettingControl::Button,
             Setting::ExportSettings | Setting::ImportSettings => SettingControl::Button,
         }
+    }
+}
+
+impl Setting {
+    /// 是否为填写的文本（程序路径、接口地址、模型名、密钥）：没有可选的菜单，始终绘制为输入框。
+    pub fn is_text_field(self) -> bool {
+        matches!(self, Setting::GitPath | Setting::LatexPath) || self.is_ai_text()
+    }
+
+    /// 是否为调用模型的一项文本设置：接口地址、模型名或密钥。
+    pub fn is_ai_text(self) -> bool {
+        matches!(
+            self,
+            Setting::AiBaseUrl | Setting::AiModel | Setting::AiApiKey
+        )
     }
 }
 
@@ -1316,10 +1373,7 @@ fn row_height(
             rows * tile.1 + (rows - 1.0) * THEME_GRID_GAP + THEME_GRID_PAD * 2.0
         }
         SettingControl::Command
-            if !matches!(
-                setting,
-                Setting::TerminalShell | Setting::GitPath | Setting::LatexPath
-            ) =>
+            if setting != Setting::TerminalShell && !setting.is_text_field() =>
         {
             SETTINGS_ROW_TALL
         }

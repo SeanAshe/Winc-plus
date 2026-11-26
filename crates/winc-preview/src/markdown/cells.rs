@@ -19,31 +19,9 @@ pub struct Cell {
 
 /// 切分表格的一行 `line`（不含换行符），返回这一行的各个单元格。
 pub fn cells(line: &str) -> Vec<Cell> {
-    let bytes = line.as_bytes();
-    let mut pipes = Vec::new();
-    let mut escaped = false;
-    for (i, &b) in bytes.iter().enumerate() {
-        if b == b'|' && !escaped {
-            pipes.push(i);
-        }
-        escaped = b == b'\\' && !escaped;
-    }
-    let lead = line.len() - line.trim_start().len();
-    let trail = line.trim_end().len();
-    let mut bounds = Vec::with_capacity(pipes.len() + 2);
-    // 开头没有 `|` 时第一格从行首起，末尾没有 `|` 时最后一格到行尾止。
-    if pipes.first() != Some(&lead) {
-        bounds.push(None);
-    }
-    bounds.extend(pipes.iter().map(|&p| Some(p)));
-    if pipes.last().is_none_or(|&p| p + 1 != trail) {
-        bounds.push(None);
-    }
-    bounds
-        .windows(2)
-        .map(|w| {
-            let start = w[0].map_or(lead, |p| p + 1);
-            let end = w[1].unwrap_or(trail).max(start);
+    segments(line)
+        .map(|segment| {
+            let (start, end) = (segment.start, segment.end);
             let inner = &line[start..end];
             let left = inner.len() - inner.trim_start().len();
             let content = if inner.trim().is_empty() {
@@ -52,24 +30,47 @@ pub fn cells(line: &str) -> Vec<Cell> {
             } else {
                 start + left..start + inner.trim_end().len()
             };
-            Cell {
-                segment: start..end,
-                content,
-            }
+            Cell { segment, content }
         })
         .collect()
 }
 
 /// 是否为表头下面那一行（`|---|:--:|`）。
 pub fn is_delimiter(line: &str) -> bool {
-    let cells = cells(line);
-    !cells.is_empty()
-        && cells.iter().all(|c| {
-            let t = line[c.segment.clone()].trim();
+    let mut segments = segments(line).peekable();
+    segments.peek().is_some()
+        && segments.all(|segment| {
+            let t = line[segment].trim();
             let t = t.strip_prefix(':').unwrap_or(t);
             let t = t.strip_suffix(':').unwrap_or(t);
             !t.is_empty() && t.bytes().all(|b| b == b'-')
         })
+}
+
+/// 依次返回 `line` 中各单元格两个 `|` 之间的范围（字节偏移），不分配内存。
+///
+/// 开头没有 `|` 时第一格从左侧空白之后起，末尾没有 `|` 时最后一格到右侧空白之前止。
+fn segments(line: &str) -> impl Iterator<Item = Range<usize>> + '_ {
+    let bytes = line.as_bytes();
+    let lead = line.len() - line.trim_start().len();
+    let trail = line.trim_end().len();
+    // `piped`：当前一格的起点紧跟在 `|` 之后。
+    let mut piped = bytes.get(lead) == Some(&b'|');
+    let mut start = Some(lead + usize::from(piped));
+    let (mut at, mut escaped) = (lead + usize::from(piped), false);
+    std::iter::from_fn(move || {
+        let from = start?;
+        while let Some(&b) = bytes.get(at) {
+            at += 1;
+            if b == b'|' && !escaped {
+                (start, piped) = (Some(at), true);
+                return Some(from..at - 1);
+            }
+            escaped = b == b'\\' && !escaped;
+        }
+        start = None;
+        (!piped || from != trail).then(|| from..trail.max(from))
+    })
 }
 
 /// 光标在单元格之间移动的一步。

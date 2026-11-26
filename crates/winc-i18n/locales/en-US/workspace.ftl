@@ -475,6 +475,7 @@ workspace-recent-project-tag = Project
 workspace-recent-project = { $name } (Project)
 workspace-project-file-opened = “{ $name }” is a project file
 workspace-notice-open-project = Open Project
+workspace-notice-trust-repository = Trust Repository…
 workspace-title-unsaved = { $name } (Unsaved)
 workspace-project-read-failed = Couldn’t open project “{ $name }”: { $error }
 workspace-project-invalid = “{ $name }” isn’t a valid project file

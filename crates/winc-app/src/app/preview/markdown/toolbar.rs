@@ -4,6 +4,20 @@
 use super::*;
 use crate::keymap::Action;
 
+/// 显示格式工具栏的选区，以及工具栏固定的位置。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct SelectionToolbar {
+    /// 选区所在的文档。
+    pub doc: DocumentId,
+    /// 选区：改变后不再显示工具栏。
+    pub selection: winc_core::Selection,
+    /// 点击过按钮后工具栏固定的左边缘（逻辑像素，相对内容的左边缘）；为 `None` 时按选区放置。
+    ///
+    /// 按钮增删标记、改变字形之后选区的宽度随之改变，工具栏不再跟随选区的中点移动，连续点击时
+    /// 按钮留在原处。
+    pub left: Option<f32>,
+}
+
 /// 工具栏中的按钮。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Tool {
@@ -93,15 +107,19 @@ impl App {
         };
         let picked = (self.editor.active())
             .filter(|d| !d.selection.is_empty() && d.extra_selections().is_empty() && one_line(d))
-            .map(|d| (d.id, d.selection));
+            .map(|d| SelectionToolbar {
+                doc: d.id,
+                selection: d.selection,
+                left: None,
+            });
         self.preview.markdown.toolbar = picked.filter(|_| enabled && self.markdown_live());
         self.request_redraw();
     }
 
     /// 返回显示工具栏的选区；选区已改变时为 `None`。
     pub(crate) fn selection_toolbar(&self) -> Option<winc_core::Selection> {
-        let (id, selection) = self.preview.markdown.toolbar?;
-        let doc = self.editor.active().filter(|d| d.id == id)?;
+        let SelectionToolbar { doc, selection, .. } = self.preview.markdown.toolbar?;
+        let doc = self.editor.active().filter(|d| d.id == doc)?;
         (doc.selection == selection && self.markdown_live()).then_some(selection)
     }
 
@@ -132,12 +150,17 @@ impl App {
             .collect()
     }
 
-    /// 执行工具栏中的按钮 `tool`；之后的选区上仍显示工具栏。
+    /// 执行工具栏中的按钮 `tool`；之后的选区上仍显示工具栏，左右位置不变。
     pub(in crate::app) fn run_selection_tool(&mut self, tool: Tool) {
         match tool.mark() {
             Some(mark) => {
+                let content = self.preview.markdown.layout.as_ref().map(|laid| laid.left);
+                let left = (self.hits.selection_card.zip(content)).map(|(card, x)| card.x - x);
                 self.live_format(mark);
                 self.offer_selection_toolbar();
+                if let Some(toolbar) = &mut self.preview.markdown.toolbar {
+                    toolbar.left = left;
+                }
             }
             None => {
                 self.markdown_link(false);

@@ -43,14 +43,18 @@ impl App {
     /// 弹出确认框（macOS 上是系统的，其他平台画在窗口里）。
     ///
     /// 剪贴板里既没有文字也没有图片时按空文字粘贴：程序开启了括号粘贴时收到一次空的括号粘贴；
-    /// 未开启时不发送任何内容。
+    /// 未开启时不发送任何内容。远端标签先传复制的文件和图片、再粘贴那里的路径
+    /// （[`App::upload_paste`]）；Windows 上本机标签把图片存为文件后粘贴其路径
+    /// （[`App::paste_image_file`]）。
     pub(in crate::app) fn terminal_paste(&mut self) {
         let text = self.clipboard_text().unwrap_or_default();
         let Some(tab) = self.terminal.tab().map(|t| (t.id, t.modes, t.cwd.clone())) else {
             return;
         };
         let (id, modes, cwd) = tab;
-        if self.upload_paste(id, &cwd, text.is_empty()) {
+        if self.upload_paste(id, &cwd, text.is_empty())
+            || self.paste_image_file(id, &cwd, text.is_empty())
+        {
             return;
         }
         let text = if text.is_empty() {

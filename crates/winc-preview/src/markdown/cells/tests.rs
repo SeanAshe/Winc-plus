@@ -15,9 +15,20 @@ fn rows_split_into_cells() {
     assert_eq!(contents("a | b"), ["a", "b"]);
     assert_eq!(contents("| a \\| b | `c` |"), ["a \\| b", "`c`"]);
     assert_eq!(cells("|  | x |")[0].content, 2..2);
+    // 只有 `|` 时没有单元格；空行是一个空单元格；末尾的 `\\|` 中 `|` 未被转义。
+    assert!(cells("|").is_empty());
+    assert_eq!(contents(""), [""]);
+    assert_eq!(contents("| a \\\\|  "), ["a \\\\"]);
     assert!(is_delimiter("|---|:-:|"));
     assert!(is_delimiter("--- | ---"));
+    assert!(is_delimiter("  | :--- | ---: |  "));
+    assert!(!is_delimiter(""));
+    assert!(!is_delimiter("|   |"));
+    assert!(!is_delimiter("| : |"));
+    assert!(!is_delimiter("| --- \\| --- |"));
     assert!(!is_delimiter("| a | b |"));
+    // 与切分单元格相同，按 Unicode 去除两侧空白（全角空格）。
+    assert!(is_delimiter("|\u{3000}---\u{3000}|"));
 }
 
 /// 在 `text` 的光标处（用 `^` 标出）走一步，返回改完的文字，选区用 `[` `]` 标出。

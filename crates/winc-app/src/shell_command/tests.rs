@@ -189,6 +189,18 @@ fn launching_a_bundle_passes_absolute_targets() {
     let out = open_arguments(bundle, &args);
     assert_eq!(&out[3..7], ["--args", "/p", "/a b.rs:12:5", "/c.rs:1"]);
     assert_eq!(out[7], cwd.as_os_str());
+
+    // 要比较的文件写成 `--diff` 和两个绝对路径。
+    let args = Args {
+        diffs: vec![crate::cli::Diff {
+            left: "/p/a.rs".into(),
+            right: "relative".into(),
+        }],
+        ..Args::default()
+    };
+    let out = open_arguments(bundle, &args);
+    assert_eq!(&out[3..6], ["--args", "--diff", "/p/a.rs"]);
+    assert_eq!(out[6], cwd.as_os_str());
 }
 
 #[test]

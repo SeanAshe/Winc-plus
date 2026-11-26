@@ -73,8 +73,13 @@ impl Json {
     }
 
     /// 把键值对转成对象；键重复时后出现的值覆盖先出现的。
-    pub(crate) fn object<K: Into<String>>(items: impl IntoIterator<Item = (K, Json)>) -> Json {
+    pub fn object<K: Into<String>>(items: impl IntoIterator<Item = (K, Json)>) -> Json {
         Json::Object(items.into_iter().map(|(k, v)| (k.into(), v)).collect())
+    }
+
+    /// 是对象且有键 `key` 时返回该键的值，否则返回 `None`。
+    pub fn get(&self, key: &str) -> Option<&Json> {
+        self.as_object()?.get(key)
     }
 
     /// 是对象时返回键值表，否则返回 `None`。

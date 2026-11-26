@@ -26,7 +26,7 @@ winc-i18n.workspace = true
 # 渲染（见 src/pdf/mac.rs）。和 winc-render 用的是同一版本的绑定，不多出新的 crate。
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFData", "CFDictionary", "CFNumber", "CFString", "CFCGTypes", "CFURL"] }
-objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGBitmapContext", "CGColorSpace", "CGContext", "CGImage", "CGPDFDocument", "CGPDFPage"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGBitmapContext", "CGColorSpace", "CGContext", "CGDataProvider", "CGImage", "CGPDFDocument", "CGPDFPage"] }
 
 # Windows：PDF 由系统的 `Windows.Data.Pdf` 渲染、WIC 解码（见 src/pdf/win.rs）。只开用到的 WinRT
 # 命名空间。

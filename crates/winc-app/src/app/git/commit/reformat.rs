@@ -7,11 +7,12 @@
 
 use ropey::Rope;
 use winc_core::LineEnding;
-use winc_editor::format::{Cancel as FormatCancel, Job, Plan};
+use winc_editor::format::{Cancel as FormatCancel, Job, Survey};
 use winc_editor::git::Change;
 
 use super::*;
 use crate::app::NoticeKind;
+use crate::app::editor::format::CommitTool;
 
 impl App {
     /// 提交前格式化：开着、这次还没整理过时在后台整理要提交的文件，返回 `true`，提交等整理完
@@ -60,27 +61,39 @@ impl App {
                 return false;
             }
         }
-        let jobs: Vec<(PathBuf, PathBuf, Plan, std::time::Duration)> = (targets.into_iter())
+        let project = self.project_format();
+        let tools: Vec<(PathBuf, PathBuf, CommitTool)> = (targets.into_iter())
             .filter_map(|(path, repo)| {
-                let (plan, timeout) = self.commit_format_plan(&path)?;
-                Some((path, repo, plan, timeout))
+                let tool = self.commit_tool(&path, project.as_ref())?;
+                Some((path, repo, tool))
             })
             .collect();
-        if jobs.is_empty() {
+        if tools.is_empty() {
             return false;
         }
         let formatter = self.format.formatter.clone();
         let sender = self.git.commit.results.0.clone();
+        // 选择工具要逐级检查项目中的文件，与格式化一起在后台进行。
+        // 后台核对用户对项目工具的选择时，使用开始整理时状态的副本。
+        let workspace = self.editor.root().map(Path::to_path_buf);
+        let state = self.state.clone();
         self.git.commit.busy = true;
         self.run_git_job(move |git, root| {
             let mut changed: Vec<(PathBuf, PathBuf)> = Vec::new();
             let mut failed = 0;
-            for (path, repo, plan, timeout) in jobs {
+            // 各文件共用一次查询：同一级目录中的同一个文件只检查一次。
+            let mut survey = Survey::default();
+            for (path, repo, tool) in tools {
                 // 状态可能已经过时：磁盘上的内容此刻与暂存区不同的文件照原样提交。
                 let matches = || (git.as_ref()).is_ok_and(|git| git.matches_index(&repo, &path));
                 if staging && !matches() {
                     continue;
                 }
+                let Some((plan, timeout)) =
+                    tool.plan(&mut survey, &path, workspace.as_deref(), &state)
+                else {
+                    continue;
+                };
                 let Ok(bytes) = winc_backend::fs::read(&path) else {
                     continue;
                 };

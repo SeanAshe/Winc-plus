@@ -301,7 +301,7 @@ fn response_text(response: &Response) -> String {
 }
 
 /// 发送失败的原因（给用户看的）。
-fn send_error(error: &SendError) -> String {
+pub(crate) fn send_error(error: &SendError) -> String {
     match error {
         SendError::Spawn(e) if e.kind() == std::io::ErrorKind::NotFound => {
             t!("editor-http-curl-missing").to_owned()

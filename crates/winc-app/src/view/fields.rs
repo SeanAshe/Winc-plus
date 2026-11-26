@@ -16,6 +16,8 @@ pub(super) struct AreaWrap {
     row_starts: Vec<usize>,
     /// 组字文字的起点和终点：（行，x）；没有组字时都是光标的位置。
     preedit_span: ((u32, f32), (u32, f32)),
+    /// 光标的位置：（行，x）。组字时位于输入法在组字文字中的光标处，输入法要求隐藏时为 `None`。
+    caret: Option<(u32, f32)>,
     /// 每个字素边界的（输入框文字里的字节偏移，x），见 [`FieldView::stops`]。
     stops: Vec<(usize, f32)>,
     /// 每个边界在第几个显示行，见 [`FieldView::rows`]。
@@ -131,6 +133,10 @@ pub(crate) fn wrap_area_field(
     {
         (pre_start, pre_end) = ((row, x), (row, x));
     }
+    let caret_at = match pl {
+        0 => Some(pre_end),
+        _ => app.preedit_cursor(preedit).map(|at| place(caret + at)),
+    };
     for boundary in all.iter().filter(|b| !in_preedit(b.pos)) {
         stops.push((to_field(boundary.pos), boundary.x));
         rows.push(boundary.row);
@@ -140,6 +146,7 @@ pub(crate) fn wrap_area_field(
         preedit: pl,
         row_starts,
         preedit_span: (pre_start, pre_end),
+        caret: caret_at,
         stops,
         rows,
         ends,
@@ -167,6 +174,7 @@ pub(crate) fn draw_area_field(
         preedit: pl,
         row_starts,
         preedit_span: (pre_start, pre_end),
+        caret,
         stops,
         rows,
         ends,
@@ -270,12 +278,11 @@ pub(crate) fn draw_area_field(
         }
     }
 
-    let line = band(pre_end.0);
-    let x = area.x + pre_end.1;
-    if focused && app.blink.visible && from == to {
-        draw_field_caret(frame, p, x, line, area.inset(-3.0, 0.0));
+    if let Some((row, x)) = caret.filter(|_| focused && app.blink.visible && from == to) {
+        draw_field_caret(frame, p, area.x + x, band(row), area.inset(-3.0, 0.0));
     }
-    focused.then(|| Rect::new(x, line.y + 2.0, 2.0, 16.0))
+    let (row, x) = caret.unwrap_or(pre_end);
+    focused.then(|| Rect::new(area.x + x, band(row).y + 2.0, 2.0, 16.0))
 }
 
 /// 输入光标的宽度（逻辑像素）。
@@ -294,12 +301,6 @@ fn draw_field_caret(frame: &mut Frame<'_>, p: &Palette, x: f32, row: Rect, clip:
     );
 }
 
-/// 绘制浮动条中的一个输入框：选区、文本、输入法组字和光标。
-///
-/// 文本比 `area` 宽时横向滚动，使光标始终可见。同时把本次绘制的几何信息写入 `field.view`，
-/// 供点击和拖选时使用。
-///
-/// 有焦点时返回光标的矩形，供输入法候选框定位。
 /// 遮盖输入框中一个圆点占的宽度（逻辑像素）。
 const MASK_W: f32 = 10.0;
 /// 遮盖输入框中圆点的直径（逻辑像素）：不随字体变化，圆点大小在各平台上一致。
@@ -316,6 +317,12 @@ fn draw_mask(frame: &mut Frame<'_>, x: f32, area: Rect, count: usize, color: Col
     x + count as f32 * MASK_W
 }
 
+/// 绘制浮动条中的一个输入框：选区、文本、输入法组字和光标。
+///
+/// 文本比 `area` 宽时横向滚动，使光标始终可见。同时把本次绘制的几何信息写入 `field.view`，
+/// 供点击和拖选时使用。
+///
+/// 有焦点时返回光标的矩形，供输入法候选框定位。
 pub(super) fn draw_bar_field(
     app: &App,
     frame: &mut Frame<'_>,
@@ -431,6 +438,8 @@ pub(super) fn draw_bar_field(
         ui_text(frame, app, origin, area, before, color, area)
     };
 
+    // 光标：组字时位于输入法在组字文字中的光标处，输入法要求隐藏时不显示。
+    let mut caret = Some(x);
     if !preedit.is_empty() {
         let start = x;
         x = if masked {
@@ -440,6 +449,13 @@ pub(super) fn draw_bar_field(
         };
         let underline = Rect::new(start, area.y + area.h / 2.0 + 8.0, x - start, 1.0);
         frame.rect_clipped(underline, p.accent, 0.0, area);
+        caret = app.preedit_cursor(preedit).map(|at| {
+            let head = &preedit[..at];
+            match masked {
+                true => start + count(head) as f32 * MASK_W,
+                false => start + frame.measure(FontKind::Ui, app.fonts.ui, head),
+            }
+        });
     }
 
     if masked {
@@ -449,9 +465,9 @@ pub(super) fn draw_bar_field(
     }
 
     // 有选区时不显示光标，选区本身已指示位置。
-    if focused && app.blink.visible && from == to {
-        draw_field_caret(frame, p, x, area, area.inset(-3.0, 0.0));
+    if let Some(caret) = caret.filter(|_| focused && app.blink.visible && from == to) {
+        draw_field_caret(frame, p, caret, area, area.inset(-3.0, 0.0));
     }
 
-    focused.then(|| caret_rect(x))
+    focused.then(|| caret_rect(caret.unwrap_or(x)))
 }

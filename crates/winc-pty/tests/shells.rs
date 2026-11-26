@@ -183,10 +183,14 @@ impl Shell {
     }
 
     /// 命令的输出文本（输出的第一行到结束行之前），每行去掉首尾空白后用换行符连接。
+    ///
+    /// 不含 bash 的 `child setpgid` 提示：子进程设置进程组与父进程存在竞争，系统繁忙时或管道的
+    /// 成员退出得早时（bash 3.2）设置失败，bash 报告后仍然运行命令。该提示与被检查的输出无关。
     fn output(&self, block: &Block) -> String {
         let (start, end) = (block.output.unwrap(), block.end.unwrap());
         (start..end)
             .map(|l| self.client.screen[l as usize].trimmed().to_string())
+            .filter(|line| !line.contains("child setpgid"))
             .collect::<Vec<_>>()
             .join("\n")
     }
@@ -215,14 +219,7 @@ impl Shell {
 
         // `printenv … || echo none` 在 bash、zsh、fish 里写法相同。
         let leak = self.run("env | grep -c WINC_ ; printenv ZDOTDIR || echo none");
-        // 管道的成员退出得早时，bash 3.2 会报 `child setpgid` 失败。这条竞争的提示与被检查的环境
-        // 无关，比较前去掉。
-        let output = self.output(&leak);
-        let output: Vec<&str> = output
-            .lines()
-            .filter(|line| !line.contains("child setpgid"))
-            .collect();
-        assert_eq!(output.join("\n"), format!("0\n{expected_cwd}"));
+        assert_eq!(self.output(&leak), format!("0\n{expected_cwd}"));
 
         let cd = self.run("cd /usr");
         assert_eq!(cd.cwd, b"/", "块记的是命令开始时的目录");

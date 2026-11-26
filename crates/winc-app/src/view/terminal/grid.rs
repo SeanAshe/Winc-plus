@@ -225,7 +225,6 @@ pub(super) fn draw_line(
         frame.rect_clipped(rect, color, 0.0, clip);
     }
 
-    let nudge = 1.0 / frame.scale().max(1.0);
     for (part, &Paint { fg, shape, .. }) in parts.iter().zip(&styles) {
         let attrs = part.style.attrs;
         let bold = attrs.has(Attrs::BOLD);
@@ -277,11 +276,10 @@ pub(super) fn draw_line(
                     && !draw_block_element(frame, c, at, fg, clip)
                     && !super::powerline::draw_powerline(frame, c, at, fg, clip)
                 {
-                    frame.cell_char(kind, size, x_of(col), baseline, cell, w, c, fg, clip);
-                    // 粗体：往右错开一个物理像素再绘制一次，笔画加粗、字宽不变（等宽的格子不乱）。
                     if bold {
-                        let x = x_of(col) + nudge;
-                        frame.cell_char(kind, size, x, baseline, cell, w, c, fg, clip);
+                        frame.cell_char_bold(kind, size, x_of(col), baseline, cell, w, c, fg, clip);
+                    } else {
+                        frame.cell_char(kind, size, x_of(col), baseline, cell, w, c, fg, clip);
                     }
                 }
                 col += w;
@@ -644,14 +642,15 @@ pub(super) fn preedit_x(x: f32, text: &str, cell: f32, right: f32) -> f32 {
     x.min(right - cells.iter().sum::<usize>() as f32 * cell)
 }
 
-/// 输入法组字中的文字：绘制在 [`preedit_x`] 处，带强调色的下划线，遮住下面的格子。
+/// 输入法组字中的文字：绘制在 [`preedit_x`] 处，带强调色的下划线，遮住下面的格子；其中有
+/// 输入法的光标时一并绘制，返回光标的横坐标。
 pub(super) fn draw_preedit(
     app: &App,
     frame: &mut Frame<'_>,
     (x, y): (f32, f32),
     baseline: f32,
     clip: Rect,
-) {
+) -> Option<f32> {
     let p = app.palette;
     let cell = app.metrics.terminal_cell;
     let preedit = app.preedit_at(Focus::Terminal);
@@ -682,4 +681,11 @@ pub(super) fn draw_preedit(
         0.0,
         clip,
     );
+    let at = crate::view::editor::preedit_cursor_x(app, preedit, &cells, x, cell)?;
+    if app.blink.visible {
+        let lh = app.fonts.terminal_line_height;
+        let bar = Rect::new(at.round(), y + 1.0, 2.0, lh - 2.0);
+        frame.rect_clipped(bar, p.caret, 1.0, clip);
+    }
+    Some(at)
 }

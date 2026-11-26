@@ -157,15 +157,20 @@ impl App {
     /// 按滚轮位移滚动当前标签的表格。
     ///
     /// `dx`、`dy` 为滚轮的横向、纵向位移（逻辑像素），(`x`, `y`) 为鼠标位置。在当前格的卡片
-    /// 上时滚动卡片中的文字；只取主方向，触控板竖直滑动时不会同时左右移动。
+    /// 上时滚动卡片中的文字，在底部的标签栏上时横向滚动标签；只取主方向，触控板竖直滑动时
+    /// 不会同时左右移动。
     pub(crate) fn scroll_table(&mut self, dx: f32, dy: f32, (x, y): (f32, f32)) {
         let layout = &self.preview.table_layout;
         let (max_x, max_y) = layout.max_scroll;
         let (in_card, card_max) = (layout.card.contains(x, y), layout.card_max);
+        let (in_bar, bar_max) = (layout.bar.contains(x, y), layout.bar_max);
         let Some(view) = self.active_table_mut() else {
             return;
         };
-        if in_card {
+        if in_bar {
+            let along = if dx.abs() > dy.abs() { dx } else { dy };
+            view.bar_scroll = (view.bar_scroll - along).clamp(0.0, bar_max);
+        } else if in_card {
             view.card_scroll = (view.card_scroll - dy).clamp(0.0, card_max);
         } else if dx.abs() > dy.abs() {
             view.scroll.0 = (view.scroll.0 - dx).clamp(0.0, max_x);
@@ -227,6 +232,8 @@ impl App {
                 view.selection = ((0, 0), (0, 0));
                 view.card_scroll = 0.0;
             }
+            // 只露出一部分的标签被点中后完整滚入可见范围。
+            view.bar_revealed = false;
             self.request_redraw();
             return true;
         }
@@ -418,8 +425,12 @@ impl App {
 /// 每帧由 [`draw`] 写入，鼠标和键盘处理按它判断点在哪一格、滚动到哪里。
 #[derive(Debug, Default)]
 pub(crate) struct TableLayout {
-    /// 底部各张工作表标签的矩形，按工作表的顺序。
+    /// 底部各张工作表标签的可见部分，按工作表的顺序；不可见的为空矩形。
     pub(crate) sheets: Vec<Rect>,
+    /// 底部标签栏中排列标签的区域；没有标签栏时为空矩形。
+    pub(crate) bar: Rect,
+    /// 标签栏的最大滚动距离（逻辑像素）。
+    pub(crate) bar_max: f32,
     /// 横向、纵向的最大滚动距离（逻辑像素）。
     pub(crate) max_scroll: (f32, f64),
     /// 表格所在的区域：编辑区，或分栏时的右边。

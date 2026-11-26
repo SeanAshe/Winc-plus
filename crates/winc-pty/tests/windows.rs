@@ -170,13 +170,17 @@ fn a_native_shell_receives_the_project_python_environment() {
         integration: Some(root.join("shell").to_str().unwrap().as_bytes().to_vec()),
         banner: Vec::new(),
     });
+    // 只取 PATH 中第一个 `python.exe`（cmd 内置的 `%~$PATH:i`）：`where` 逐个搜索 PATH 中的
+    // 全部目录，在 PATH 很长的机器上耗时数秒，`exit` 可能晚于等待的时限。
     c.send(ToHelper::Input {
         tab: 1,
-        bytes: b"echo env=%VIRTUAL_ENV%& where python& exit\r".to_vec(),
+        bytes:
+            b"echo env=%VIRTUAL_ENV%& (for %i in (python.exe) do @echo python=%~$PATH:i)& exit\r"
+                .to_vec(),
         rest: 0,
     });
     let expected = format!("env={}", venv.display());
-    // 临时目录在环境变量中可以是 8.3 短名，`where` 输出的是长名：只比较与上级目录的写法无关的
+    // 临时目录在环境变量中可以是 8.3 短名，PATH 中可能是长名：只比较与上级目录的写法无关的
     // 末尾部分。
     let folder = root.file_name().unwrap().to_str().unwrap();
     let python = format!(r"{folder}\.venv\Scripts\python.exe");

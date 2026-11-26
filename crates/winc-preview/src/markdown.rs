@@ -67,12 +67,19 @@ pub struct Markdown {
     pub leaves: Vec<LeafRange>,
     /// 原文的字节数：与当前文档的长度相比，得出解析之后又改了多少。
     pub len: usize,
+    /// 原文是否包含链接引用定义（`[id]: url`）：存在时局部重解析回退全文解析。
+    has_link_defs: bool,
+    /// 文档是否包含 `[TOC]` / `[[TOC]]` 目录占位：存在时编辑标题回退全文解析。
+    has_toc: bool,
+    /// 是否已通过 [`Markdown::with_blank_lines`] 插入块间空行段落。
+    blank_lines: bool,
 }
 
 /// 文字与原文的对照：文字中的字节偏移对应原文中的哪个字节偏移。
 ///
-/// 按文字的先后记下若干段：每段文字与原文逐字节相同；不在任何一段里的文字（软换行换成的
-/// 空格、emoji、脚注编号这类由原文生成的文字）对应前一段的末尾。
+/// 按文字的先后记下若干段：每段文字与原文逐字节相同；由原文生成的文字（软换行换成的空格、
+/// emoji、脚注编号）记一个对应点。[`SourceMap::source`] 中不在任何一段里的文字对应前一段的
+/// 末尾，[`SourceMap::char_source`] 中只有对应点之后的文字有位置。
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct SourceMap(Vec<Anchor>);
 
@@ -103,6 +110,23 @@ impl SourceMap {
         Some(a.source as usize + (at - a.text as usize).min(a.len as usize))
     }
 
+    /// 返回文字中第 `at` 个字节对应的原文位置；不在任何一段里、也不在对应点之后时为 `None`。
+    ///
+    /// 排版时据此记下每个字的原文位置：没有对应点的生成文字（脚注末尾的 ` ↩`）不计入正文。
+    pub fn char_source(&self, at: usize) -> Option<usize> {
+        let i = self
+            .0
+            .partition_point(|a| a.text as usize <= at)
+            .checked_sub(1)?;
+        let a = self.0[i];
+        let off = at - a.text as usize;
+        if a.len == 0 {
+            Some(a.source as usize)
+        } else {
+            (off < a.len as usize).then_some(a.source as usize + off)
+        }
+    }
+
     /// 占用的堆内存（字节，按容量计算），用于内存测量。
     pub fn heap_bytes(&self) -> usize {
         self.0.capacity() * std::mem::size_of::<Anchor>()
@@ -119,14 +143,18 @@ impl SourceMap {
     }
 
     /// 记下文字从 `text` 起的 `len` 个字节与原文从 `source` 起的字节相同；与前一段首尾相接时
-    /// 合并。
+    /// 合并。`len` 为 0 时是一个对应点，不并入前一段：其后的生成文字据此对应原文位置。
     fn push(&mut self, text: usize, source: usize, len: usize) {
         let (Some(text), Some(source), Some(len)) = (offset(text), offset(source), offset(len))
         else {
             return;
         };
         if let Some(last) = self.0.last_mut() {
-            if last.len > 0 && last.text + last.len == text && last.source + last.len == source {
+            if len > 0
+                && last.len > 0
+                && last.text + last.len == text
+                && last.source + last.len == source
+            {
                 last.len += len;
                 return;
             }
@@ -488,6 +516,11 @@ impl Inline {
         self.map.source(at).map(|s| s + self.source)
     }
 
+    /// 返回文字中第 `at` 个字节在所在顶层块原文中的位置，见 [`SourceMap::char_source`]。
+    pub fn char_source_of(&self, at: usize) -> Option<usize> {
+        self.map.char_source(at).map(|s| s + self.source)
+    }
+
     /// 是否没有可显示的内容（只有空白）。
     pub fn is_blank(&self) -> bool {
         self.text.trim().is_empty()
@@ -542,6 +575,23 @@ pub fn parse(text: &str) -> Markdown {
     // `\(…\)`、`\[…\]` 和公式环境换成等长的 `$$` 后解析，位置仍按原文。
     let masked = delims::mask(text);
     for (event, range) in Parser::new_ext(&masked, options).into_offset_iter() {
+        // 顶层段落开头的 1–3 个空格不属于段落（CommonMark 4.8）；段落的范围从行首算起，段首
+        // 输入的空格仍属于该段落，光标在其中有位置。
+        let block_start =
+            if matches!(event, Event::Start(Tag::Paragraph)) && builder.stack.is_empty() {
+                let line_start = text[..range.start].rfind('\n').map_or(0, |n| n + 1);
+                if line_start < range.start
+                    && text[line_start..range.start]
+                        .bytes()
+                        .all(|b| matches!(b, b' ' | b'\t'))
+                {
+                    line_start
+                } else {
+                    range.start
+                }
+            } else {
+                range.start
+            };
         // 顶层块开始的地方：不在任何容器、段落、代码块、HTML 块里。分隔线没有开始、结束两个
         // 事件，只有一个。
         if matches!(event, Event::Start(_) | Event::Rule)
@@ -550,13 +600,13 @@ pub fn parse(text: &str) -> Markdown {
             && builder.code.is_none()
             && builder.html.is_none()
         {
-            builder.start_at = range.start;
+            builder.start_at = block_start;
         }
-        (builder.start, builder.cursor, builder.end) = (range.start, range.start, range.end);
+        (builder.start, builder.cursor, builder.end) = (block_start, range.start, range.end);
         builder.event(event);
         if builder.inline.is_some() {
-            let leaf = builder.leaf.get_or_insert(range.clone());
-            *leaf = leaf.start.min(range.start)..leaf.end.max(range.end);
+            let leaf = builder.leaf.get_or_insert(block_start..range.end);
+            *leaf = leaf.start.min(block_start)..leaf.end.max(range.end);
         }
     }
     builder.finish(text)
@@ -1244,7 +1294,7 @@ impl Builder<'_> {
                 self.ranges.push(range);
             }
         }
-        contents(&mut self.root[..main]);
+        let has_toc = toc::contents(&mut self.root[..main]);
         for (block, range) in self.root.iter_mut().zip(&self.ranges) {
             rebase(block, range.start);
         }
@@ -1295,6 +1345,9 @@ impl Builder<'_> {
             ranges: self.ranges,
             leaves,
             len: source.len(),
+            has_link_defs: incremental::has_link_ref_defs(source),
+            has_toc,
+            blank_lines: false,
         }
     }
 
@@ -1326,77 +1379,6 @@ pub fn slug(text: &str) -> String {
         })
         .flat_map(char::to_lowercase)
         .collect()
-}
-
-/// 把只有 `[TOC]`（或 `[[TOC]]`，不分大小写）的段落换成目录：按文中标题的层级嵌套的列表，每一项
-/// 链接到对应的标题（锚点见 [`slug`]）。`blocks` 是正文的顶层块，不含脚注。
-///
-/// 目录随标题生成，标题改变时所在块的内容随之改变；没有标题时保留原段落。
-fn contents(blocks: &mut [Block]) {
-    // `[[TOC]]` 解析为名字是 `toc` 的维基链接。
-    let is_marker = |block: &Block| {
-        let Block::Paragraph(inline) = block else {
-            return false;
-        };
-        let wiki = matches!(&inline.links[..], [url] if url.strip_prefix(syntax::WIKI)
-            .is_some_and(|name| name.eq_ignore_ascii_case("toc")));
-        wiki || inline.text.trim().eq_ignore_ascii_case("[toc]")
-    };
-    if !blocks.iter().any(is_marker) {
-        return;
-    }
-    let headings: Vec<(u8, String)> = blocks
-        .iter()
-        .filter_map(|block| match block {
-            Block::Heading(level, inline) if !inline.text.trim().is_empty() => {
-                Some((*level, inline.text.clone()))
-            }
-            _ => None,
-        })
-        .collect();
-    if headings.is_empty() {
-        return;
-    }
-    let list = Block::List(None, contents_items(&headings));
-    for block in blocks.iter_mut().filter(|block| is_marker(block)) {
-        *block = list.clone();
-    }
-}
-
-/// 把按先后排列的（级别，标题）排成嵌套的列表项：级别比前一项高的标题排在前一项下面。
-fn contents_items(headings: &[(u8, String)]) -> Vec<Item> {
-    let mut items = Vec::new();
-    let mut i = 0;
-    while i < headings.len() {
-        let (level, text) = &headings[i];
-        // 级别更深的后续标题都是这一项的子项。
-        let end = headings[i + 1..]
-            .iter()
-            .position(|(l, _)| l <= level)
-            .map_or(headings.len(), |k| i + 1 + k);
-        let mut inline = Inline::default();
-        inline.links.push(format!("#{}", slug(text)));
-        let link = u16::try_from(inline.links.len()).unwrap_or(u16::MAX);
-        inline.push(
-            text,
-            Style {
-                link,
-                ..Style::default()
-            },
-        );
-        let mut blocks = vec![Block::Paragraph(inline)];
-        if end > i + 1 {
-            blocks.push(Block::List(None, contents_items(&headings[i + 1..end])));
-        }
-        items.push(Item {
-            task: None,
-            task_source: 0,
-            blocks,
-            bare: false,
-        });
-        i = end;
-    }
-    items
 }
 
 /// 把 `block` 里记下的原文位置改为相对于原文第 `start` 个字节（所在顶层块的起点）；
@@ -1480,9 +1462,11 @@ pub mod format;
 pub mod from_html;
 mod front;
 mod html;
+mod incremental;
 mod mark;
 mod shrink;
 pub mod syntax;
+mod toc;
 pub(crate) use html::named_entity;
 use syntax::{link_url, options};
 pub mod math;

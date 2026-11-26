@@ -175,6 +175,42 @@ fn files_with_conflict_markers_are_not_committed() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 暂存区视图中从文件树回滚冲突的文件：暂存区里没有可还原的版本，回滚到 `HEAD`，冲突随之
+/// 解除。
+///
+/// 回归：暂存区视图中回滚冲突的文件，只提示没有可回滚的未暂存更改。
+#[test]
+fn rolling_back_a_conflict_in_the_staging_view_restores_head() {
+    use crate::app::input::context_menu::{MenuCommand, MenuTarget};
+    let dir = search_folder("git-merge-rollback");
+    if !conflicted_repo(&dir) {
+        return;
+    }
+    let mut app = app_with(&dir.join("src/main.rs"), false);
+    app.settings_toggle(Setting::GitModule);
+    if git_unusable(&app) {
+        return;
+    }
+    app.git.commit.set_staging(true);
+    let main = dir.join("src/main.rs");
+    app.open_context_menu(MenuTarget::Tree(Some(main.clone())), (0.0, 0.0));
+    let listed = menu_commands(&app);
+    assert!(
+        listed
+            .iter()
+            .any(|(c, _)| *c == MenuCommand::GitRollbackFile),
+        "{listed:?}"
+    );
+    app.run_menu_command(MenuCommand::GitRollbackFile);
+    app.git_refresh();
+    let text = std::fs::read_to_string(&main).unwrap();
+    assert!(text.contains("let value_10 = 100; // main"), "{text}");
+    assert!(!text.contains("<<<<<<<"), "{text}");
+    let status = app.git.status.as_ref().unwrap();
+    assert!(status.entries.iter().all(|e| !e.conflicted()));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// 截图：在文件里解决合并冲突，深浅两套配色。
 #[test]
 #[ignore]

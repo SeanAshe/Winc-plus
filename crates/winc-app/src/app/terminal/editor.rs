@@ -9,10 +9,34 @@ use winc_pty::protocol::Modes;
 
 use super::{App, Focus, os_bytes};
 
-/// 返回拖到终端上的 `path` 插入的文字：该文件在所在主机上的路径，按需加引号，后跟一个空格。
+/// 返回拖到终端上的 `path` 插入的文字：见 [`path_text`]，后跟一个空格。
 fn dropped_path_text(path: &Path) -> String {
+    format!("{} ", path_text(path))
+}
+
+/// 返回拖到或粘贴到终端中的文件 `path` 的文字：该文件在所在主机上的路径，按需加引号。
+///
+/// Windows 本机的路径按 Windows 命令行的规则加双引号（[`windows_quote`]），其余按 shell 的规则
+/// 加单引号（[`shell_quote`]）。
+pub(super) fn path_text(path: &Path) -> String {
     let native = winc_backend::native_lossy(path);
-    format!("{} ", shell_quote(Path::new(&*native)))
+    if cfg!(windows) && !winc_backend::is_remote(path) {
+        windows_quote(&native)
+    } else {
+        shell_quote(Path::new(&*native))
+    }
+}
+
+/// 给 Windows 命令行用的路径：只有字母、数字和 `\ / : . _ -` 时原样，否则用双引号包起来。
+///
+/// Windows 的文件名中不能有 `"`，引号内不需要转义。
+fn windows_quote(path: &str) -> String {
+    let safe = |c: char| c.is_alphanumeric() || matches!(c, '\\' | '/' | ':' | '.' | '_' | '-');
+    if !path.is_empty() && path.chars().all(safe) {
+        path.to_owned()
+    } else {
+        format!("\"{path}\"")
+    }
 }
 
 /// 字符 `c` 在 shell 中是否不需要引号。

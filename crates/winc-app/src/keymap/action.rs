@@ -193,6 +193,11 @@ pub enum Action {
     /// 把 `\uXXXX` 转义换成字符，或把 ASCII 以外的字符写成转义；没有选区时转换整个文件。
     UnescapeUnicode,
     EscapeUnicode,
+    /// 美化 JSON：转换选区；没有选区时转换整个文件（文件是一个 JSON 值时），
+    /// 或光标所在行中包住光标的 JSON。
+    PrettyPrintJson,
+    /// 压缩 JSON，转换的范围同 [`Action::PrettyPrintJson`]。
+    MinifyJson,
     IndentUsingSpaces,
     IndentUsingTabs,
     ConvertIndentationToSpaces,
@@ -313,6 +318,8 @@ pub enum Action {
     GitGoToParentCommit,
     /// 在只读标签中打开 Git 操作的输出。
     GitShowOutput,
+    /// 用设置的模型生成提交信息；正在生成时取消。
+    GitGenerateCommitMessage,
     /// 克隆仓库。
     GitClone,
     /// 在当前目录中初始化仓库。
@@ -617,6 +624,8 @@ impl Action {
             TrimTrailingWhitespace => t!("cmd-trim-trailing-whitespace"),
             UnescapeUnicode => t!("cmd-unescape-unicode"),
             EscapeUnicode => t!("cmd-escape-unicode"),
+            PrettyPrintJson => t!("cmd-pretty-print-json"),
+            MinifyJson => t!("cmd-minify-json"),
             IndentUsingSpaces => t!("cmd-indent-using-spaces"),
             IndentUsingTabs => t!("cmd-indent-using-tabs"),
             ConvertIndentationToSpaces => t!("cmd-convert-indentation-to-spaces"),
@@ -710,6 +719,7 @@ impl Action {
             GitGoToChildCommit => t!("cmd-git-go-to-child-commit"),
             GitGoToParentCommit => t!("cmd-git-go-to-parent-commit"),
             GitShowOutput => t!("cmd-git-show-output"),
+            GitGenerateCommitMessage => t!("cmd-git-generate-commit-message"),
             GitClone => t!("cmd-git-clone"),
             GitInit => t!("cmd-git-init"),
             GitSwitchRepository => t!("cmd-git-switch-repository"),
@@ -905,6 +915,8 @@ impl Action {
             | TrimTrailingWhitespace
             | UnescapeUnicode
             | EscapeUnicode
+            | PrettyPrintJson
+            | MinifyJson
             | IndentUsingSpaces
             | IndentUsingTabs
             | ConvertIndentationToSpaces
@@ -986,6 +998,7 @@ impl Action {
             | GitGoToChildCommit
             | GitGoToParentCommit
             | GitShowOutput
+            | GitGenerateCommitMessage
             | GitClone
             | GitInit
             | GitSwitchRepository
@@ -1201,6 +1214,7 @@ impl Action {
             | Action::GitGoToChildCommit
             | Action::GitGoToParentCommit
             | Action::GitShowOutput
+            | Action::GitGenerateCommitMessage
             | Action::GitClone
             | Action::GitInit
             | Action::GitSwitchRepository

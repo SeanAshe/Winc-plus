@@ -421,15 +421,21 @@ fn launch_bundle(args: &Args) -> Option<bool> {
     Some(status.is_ok_and(|status| status.success()))
 }
 
-/// 返回通过 `open` 启动应用包 `bundle` 的参数：各目标按 [`crate::cli::argument`] 写出。
+/// 返回通过 `open` 启动应用包 `bundle` 的参数：各目标按 [`crate::cli::argument`] 写出，要比较的
+/// 文件写成 `--diff` 和两个绝对路径。
 #[cfg(any(target_os = "macos", all(test, unix)))]
 fn open_arguments(bundle: &std::path::Path, args: &Args) -> Vec<std::ffi::OsString> {
     let mut out: Vec<std::ffi::OsString> = vec!["-n".into(), "-a".into(), bundle.into()];
-    if args.targets.is_empty() {
+    if args.targets.is_empty() && args.diffs.is_empty() {
         return out;
     }
     out.push("--args".into());
     out.extend(args.targets.iter().map(crate::cli::argument));
+    for diff in &args.diffs {
+        out.push("--diff".into());
+        out.push(crate::instance::absolute(&diff.left).into());
+        out.push(crate::instance::absolute(&diff.right).into());
+    }
     out
 }
 

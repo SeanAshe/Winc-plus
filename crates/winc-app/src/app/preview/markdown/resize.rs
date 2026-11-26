@@ -195,11 +195,10 @@ impl App {
     fn image_source(&self, image: ImageAt) -> Option<(usize, usize, bool)> {
         let md = &self.preview.markdown;
         let revision = self.editor.active()?.revision;
-        let parsed = md
-            .parsed
+        let laid = md
+            .layout
             .as_ref()
-            .map(|p| std::sync::Arc::as_ptr(p) as usize);
-        let laid = md.layout.as_ref().filter(|l| Some(l.source) == parsed)?;
+            .filter(|l| md.parsed.is_some() && l.source == md.parse_serial)?;
         if md.checked != Some(revision) {
             return None;
         }

@@ -347,7 +347,7 @@ pub fn log_commit_menu(
     menu.extend(ref_submenus(branches, BRANCH_SUBMENUS, branch_title, group));
     let tags = (tags.iter().enumerate())
         .map(|(i, name)| {
-            let ops = TagOp::ALL.map(|op| Item(LogTag(op, i), enabled));
+            let ops = TagOp::ALL.map(|op| Item(LogTag(op, i), enabled || !op.changes_repository()));
             ((*name).to_owned(), ops.into())
         })
         .collect();

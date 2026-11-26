@@ -41,6 +41,7 @@ mod stash;
 mod worktrees;
 
 use header::*;
+pub(in crate::view) use history::draw_history_card;
 use history::*;
 use names::*;
 pub(in crate::view::git) use names::{dir_parts, draw_name, file_parts, parts_width};
@@ -887,6 +888,10 @@ fn draw_card(
         draw_push_button(app, frame, push, ready, panel.intersect(card));
         hits.push((push, CommitTarget::CommitPush));
     }
+    if let Some(rect) = parts.generate {
+        draw_generate_button(app, frame, rect, panel.intersect(card));
+        hits.push((rect, CommitTarget::Generate));
+    }
     if !joined {
         draw_button(frame, p, menu, panel.intersect(card), menu_lit, open);
         let arrow = if menu_lit { p.text } else { p.text_muted };
@@ -919,7 +924,7 @@ fn draw_card(
         };
         let right = match parts.amend {
             Some(_) => menu.right() - 4.0,
-            None => menu.x - 8.0,
+            None => parts.generate.unwrap_or(menu).x - 8.0,
         };
         let hint_w = frame.measure(FontKind::Ui, size, &hint);
         if right - left >= hint_w {
@@ -945,6 +950,25 @@ fn draw_push_button(app: &App, frame: &mut Frame<'_>, rect: Rect, ready: bool, c
     let x = (rect.x + (rect.w - width) / 2.0).round();
     let ink = if ready { p.text } else { p.text_dim };
     ui_text_small(frame, app, x, rect, text, ink, clip.intersect(rect));
+}
+
+/// 绘制「生成提交信息」：无底色的图标按钮，悬停时铺底色；生成期间图标换为转动的圆弧，按钮保持
+/// 按下时的底色。
+fn draw_generate_button(app: &App, frame: &mut Frame<'_>, rect: Rect, clip: Rect) {
+    let p = app.palette;
+    let running = app.git.commit.generating.running();
+    let hovered = app.pointer.hover == Hover::Commit(CommitTarget::Generate);
+    draw_button(frame, p, rect, clip, hovered, running);
+    let color = if hovered || running {
+        p.text
+    } else {
+        p.text_muted
+    };
+    let clip = clip.intersect(rect);
+    match running {
+        true => icons::spinner(frame, center(rect), 5.0, icons::spin_turn(), color, clip),
+        false => icons::sparkle(frame, center(rect), color, clip),
+    }
 }
 
 /// 提交按钮上的文字；按钮上只有文字，没有图标。

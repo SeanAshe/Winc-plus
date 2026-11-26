@@ -20,6 +20,25 @@ impl App {
         self.on_save(Task::Format, id)
     }
 
+    /// 模拟后台已为文档 `id` 的格式化选好工具 `plan`、结果尚未处理，此时标签可能已经关闭。
+    #[cfg_attr(not(unix), allow(dead_code))] // 只有 Unix 上的格式化测试用到
+    pub(in crate::app) fn plan_formatting(&mut self, id: DocumentId, plan: Plan) {
+        let doc = self.editor.document(id).unwrap();
+        let launch = Launch {
+            task: Task::Format,
+            id,
+            save: false,
+            range: None,
+            sent: doc.format_source().unwrap(),
+            line_ending: doc.line_ending,
+            remote: false,
+            root: None,
+            project: None,
+        };
+        self.format.planning.push((id, false));
+        self.format.planned.0.send((launch, Ok(plan))).unwrap();
+    }
+
     /// 返回正在后台格式化的文件数。
     pub(in crate::app) fn formatting_count(&self) -> usize {
         self.format.running.len()
