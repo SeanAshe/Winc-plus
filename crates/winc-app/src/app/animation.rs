@@ -385,6 +385,8 @@ impl App {
         settle(&mut self.git.commit.button_motion, |m| m.1);
         settle(&mut self.git.commit.stashes.motion, |m| m.1);
         settle(&mut self.git.commit.worktrees.motion, |m| m.1);
+        settle(&mut self.git.commit.history.drawer.motion, |m| m.1);
+        settle(&mut self.git.panel.motion, |m| m.1);
         settle(&mut self.panels.outline.motion, |m| m.1);
         settle(&mut self.panels.outline.fold, |f| f.clock);
         settle(&mut self.preview.markdown.toc_fade, |c| *c);
@@ -517,6 +519,8 @@ impl App {
             || self.git.context_row.motion.is_some()
             || self.git.commit.stashes.motion.is_some()
             || self.git.commit.worktrees.motion.is_some()
+            || self.git.commit.history.drawer.motion.is_some()
+            || self.git.panel.motion.is_some()
             || self.panels.outline.motion.is_some()
             || self.panels.outline.fold.is_some()
             || self.preview.markdown.toc_fade.is_some()

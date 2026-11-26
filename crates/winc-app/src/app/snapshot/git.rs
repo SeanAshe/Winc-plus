@@ -27,6 +27,7 @@ mod log_details;
 mod log_filters;
 mod merge;
 mod module;
+mod panel;
 mod question;
 mod rebase;
 mod repo_list;

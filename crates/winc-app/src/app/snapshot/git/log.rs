@@ -950,6 +950,7 @@ fn a_tag_can_be_created_on_a_commit_from_the_log() {
         child: false,
         parent: true,
         changes: true,
+        in_log: true,
     };
     let menu = log_commit_menu(actions, "main", Vec::new(), &[]);
     for command in [MenuCommand::LogNewTag, MenuCommand::LogCopyShortOid] {
@@ -958,11 +959,11 @@ fn a_tag_can_be_created_on_a_commit_from_the_log() {
             "{command:?}"
         );
     }
-    app.run_log_commit_command(MenuCommand::LogCopyShortOid, &oid);
+    app.run_log_commit_command(MenuCommand::LogCopyShortOid, &oid, true);
     assert_eq!(app.clipboard.copied.as_deref(), Some(&oid[..7]));
 
     // 输入标签名后回车：标签创建在该提交上。
-    app.run_log_commit_command(MenuCommand::LogNewTag, &oid);
+    app.run_log_commit_command(MenuCommand::LogNewTag, &oid, true);
     assert_eq!(app.focus, Focus::Prompt);
     paint(&mut app);
     app.edit_field(|f| f.insert("v9 .0"));

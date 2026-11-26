@@ -165,6 +165,7 @@ fn a_commit_menu_lists_its_branches_and_tags() {
         child: false,
         parent: true,
         changes: true,
+        in_log: true,
     };
     let titles = |menu: &[MenuEntry]| -> Vec<String> {
         (menu.iter())

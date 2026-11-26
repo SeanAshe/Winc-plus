@@ -414,6 +414,8 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
         }
     }
 
+    draw_git_panel_toggle(app, frame, bar, &mut right, &mut status_hits);
+
     // 远程模块开着时终端开关左边是连接远端主机的按钮：点击打开主机面板。打开的目录在远端
     // 主机上时图标亮，否则灰。出现、消失的方式与终端开关相同。
     let enabled = app.remote_enabled();
@@ -861,4 +863,42 @@ fn branch_label(status: &winc_editor::git::Status) -> Option<String> {
         label.push_str(&format!(" ↓{}", status.behind));
     }
     Some(label)
+}
+
+/// 绘制状态栏上 Git 面板的开关：日志在 Git 面板中时位于终端开关左边，面板显示着时图标亮，否则
+/// 灰；出现、消失的方式与终端开关相同。`right` 是左边剩下的右沿，画完后左移；位置记入 `hits`。
+fn draw_git_panel_toggle(
+    app: &App,
+    frame: &mut Frame<'_>,
+    bar: Rect,
+    right: &mut f32,
+    hits: &mut Vec<(Rect, StatusItem)>,
+) {
+    let p = app.palette;
+    let enabled = app.git_panel_button();
+    let share = app.motion.module_fx.git_panel.share(enabled);
+    if share <= 0.0 {
+        return;
+    }
+    let opacity = app.motion.module_fx.git_panel.opacity(enabled);
+    let item = StatusItem::GitPanel;
+    let slot = *right - icons::SIDEBAR_WIDTH;
+    *right -= (icons::SIDEBAR_WIDTH + STATUS_GAP) * share;
+    let pill = Rect::new(
+        slot - CRUMB_PAD,
+        bar.y + 4.0,
+        icons::SIDEBAR_WIDTH + 2.0 * CRUMB_PAD,
+        bar.h - 8.0,
+    );
+    let hovered = enabled && app.pointer.hover == Hover::Status(item);
+    frame.with_opacity(opacity, |frame| {
+        draw_button(frame, p, pill, bar, hovered, false);
+    });
+    let center = (slot + icons::SIDEBAR_WIDTH / 2.0, bar.y + bar.h / 2.0);
+    let lit = app.git_panel_shown() || hovered;
+    let color = if lit { p.text } else { p.text_muted };
+    icons::history(frame, center, color.alpha(opacity), bar);
+    if enabled {
+        hits.push((pill, item));
+    }
 }

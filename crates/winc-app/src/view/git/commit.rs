@@ -19,7 +19,7 @@ use crate::app::git::log::display_local;
 use crate::app::{
     ActionStrip, COMMIT_ROW, CommitGroup, CommitLabels, CommitName, CommitOverflow, CommitParts,
     CommitRow, CommitRows, CommitScope, CommitTarget, Focus, LabelCause, LabelView, MESSAGE_LINE,
-    MESSAGE_PAD, StashLine, StashView, SyncState, WorktreeLine,
+    MESSAGE_PAD, PeekView, StashLine, SyncState, WorktreeLine,
 };
 use crate::icons::Direction;
 use crate::view::workspace::sidebar::{
@@ -34,12 +34,14 @@ mod actions;
 mod header;
 mod names;
 use actions::*;
+mod history;
 mod overflow;
 mod row;
 mod stash;
 mod worktrees;
 
 use header::*;
+use history::*;
 use names::*;
 pub(in crate::view::git) use names::{dir_parts, draw_name, file_parts, parts_width};
 pub(in crate::view) use overflow::commit_overflow;
@@ -75,6 +77,7 @@ const NEXT_PAD: f32 = 12.0;
 pub(in crate::view) fn draw_commit(app: &mut App, frame: &mut Frame<'_>) -> Option<Rect> {
     // 提交信息框随内容长高：先按框的宽度折好行（框的宽度和高度无关，卡片和分支行同宽，卡片
     // 收起时也仍然折），框的高度按行数定，绘制时继续使用折好的行。
+    app.track_history();
     app.track_stash_height();
     app.track_worktree_height();
     app.sections_tracked();
@@ -151,12 +154,29 @@ pub(in crate::view) fn draw_commit(app: &mut App, frame: &mut Frame<'_>) -> Opti
     let widths = app.track_context_row(widths);
     draw_context(app, frame, &parts, widths, &mut hits);
     draw_banner(app, frame, &parts, &mut hits);
+    draw_history(app, frame, &parts, &mut hits);
+    // 提交历史一组的滚动条贴在组内各行的右边，放得下时没有。
+    if let Some(rows) = app.history_rows_area() {
+        let scroll = drawn_scroll(app.git.commit.history.scroll);
+        let content = app.history_max_scroll() + rows.h;
+        let track = rows.intersect(app.layout.sidebar);
+        draw_scrollbar(
+            app,
+            frame,
+            ScrollArea::CommitHistory,
+            0,
+            track,
+            scroll,
+            content,
+        );
+    }
     draw_worktrees(app, frame, &parts, &mut hits);
     draw_stashes(app, frame, &parts, &mut hits);
     draw_undo(app, frame, &parts, &mut hits);
     let caret = draw_compose(app, frame, &parts, wrap, &mut hits);
     app.hits.commit = hits;
     app.git.commit.hits_generation = app.git.generation;
+    app.git.commit.history.hits_drawn();
     caret
 }
 

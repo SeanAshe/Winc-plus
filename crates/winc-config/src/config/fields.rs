@@ -685,6 +685,7 @@ const GIT: &[Field] = &[
     bool_field!("confirmPush", git_confirm_push),
     bool_field!("rememberCredentials", git_remember_credentials),
     bool_field!("inlineBlame", git_inline_blame),
+    bool_field!("commitHistory", git_commit_history),
     bool_field!("autoFetch", git_auto_fetch),
     bool_field!("stagingArea", git_staging_area),
     bool_field!("combinedDiff", git_combined_diff),
@@ -752,6 +753,26 @@ const GIT: &[Field] = &[
                 PullMode::Config => "config",
                 PullMode::Merge => "merge",
                 PullMode::Rebase => "rebase",
+            };
+            Some(Json::String(value.into()))
+        },
+    },
+    Field {
+        key: "logPlacement",
+        read: |config, value, name, problems| {
+            config.git_log_placement = match value.as_str() {
+                Some("panel") => Some(LogPlacement::Panel),
+                Some("editor") => Some(LogPlacement::Editor),
+                _ => {
+                    problems.push(t!("config-log-placement-invalid", name = name));
+                    None
+                }
+            };
+        },
+        write: |config| {
+            let value = match config.git_log_placement? {
+                LogPlacement::Panel => "panel",
+                LogPlacement::Editor => "editor",
             };
             Some(Json::String(value.into()))
         },

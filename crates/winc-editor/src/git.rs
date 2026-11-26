@@ -7,6 +7,7 @@
 
 pub mod log;
 pub mod merge;
+pub mod recent;
 
 mod branch;
 mod commit;

@@ -1211,6 +1211,14 @@ impl App {
         self.request_redraw();
     }
 
+    /// 设置日志和文件历史显示的位置，已打开的日志随之移过去。
+    pub(in crate::app) fn set_log_placement(&mut self, choice: winc_config::LogPlacement) {
+        self.config.git_log_placement = Some(choice);
+        self.save_config();
+        self.apply_log_placement(true);
+        self.request_redraw();
+    }
+
     /// 设置拉取、同步时合并还是变基。
     pub(in crate::app) fn set_pull_mode(&mut self, choice: winc_config::PullMode) {
         self.config.git_pull = Some(choice);

@@ -15,6 +15,8 @@ impl App {
         // 启动时打开的目录在界面创建之前读入，此处补充设置文件树的显示方式。
         let compact = config.compact_folders != Some(false);
         let staging = config.git_staging_area == Some(true);
+        let docked =
+            config.git_log_placement.unwrap_or_default() == winc_config::LogPlacement::Panel;
         if let Some(ws) = &mut editor.workspace {
             ws.set_compact(compact);
         }
@@ -221,6 +223,7 @@ impl App {
                 let mut git = git::GitState::default();
                 git.commit.set_compact(compact);
                 git.commit.set_staging(staging);
+                git.panel.docked = docked;
                 git
             },
             remote: Default::default(),

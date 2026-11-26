@@ -61,7 +61,7 @@ pub(super) fn draw_files(
         },
     };
     // 键盘选中的文件（按 `Tab` 进入文件列表以后）铺选中的底色。
-    let chosen = (app.git.log.file, app.focus == Focus::Editor);
+    let chosen = (app.git.log.file, app.focus == app.log_focus());
     let out = draw_file_list(app, frame, &list, hover, chosen);
     for (rect, hit) in out.hits {
         hits.push((rect, hit.log()));

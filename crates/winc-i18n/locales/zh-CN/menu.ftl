@@ -178,6 +178,7 @@ menu-log-compare-with-local = 与本地版本比较
 menu-log-copy-message = 复制提交说明
 menu-log-compare-revision = 与指定版本比较…
 menu-log-go-to = 转到提交号、分支或标签…
+menu-log-show-in-log = 在日志中显示
 menu-log-all-branches = 全部分支
 menu-log-all-dates = 全部日期
 menu-log-all-paths = 全部路径

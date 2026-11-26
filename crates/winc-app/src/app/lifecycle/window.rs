@@ -374,6 +374,7 @@ impl App {
             self.layout.search.y += crate::app::diff::diff_top(view);
         }
 
+        self.place_git_panel();
         self.place_terminal();
         self.place_window_controls();
         self.place_panes();
@@ -409,11 +410,15 @@ impl App {
         self.place_minimap();
     }
 
-    /// 当前标签是终端时，在标签栏右端留出「将终端移到面板」按钮；终端自己的标签栏不绘制。
+    /// 当前标签是终端或日志时，在标签栏右端留出「移至面板」按钮；终端自己的标签栏不绘制。
     fn place_terminal_return(&mut self) {
         let l = &mut self.layout;
         l.terminal_return = Rect::default();
-        if !self.editor.active().is_some_and(|doc| doc.terminal) || l.tabs.w < BUTTON * 3.0 {
+        let movable = self
+            .editor
+            .active()
+            .is_some_and(|doc| doc.terminal || doc.log.is_some());
+        if !movable || l.tabs.w < BUTTON * 3.0 {
             return;
         }
         let bar = l.tabs;

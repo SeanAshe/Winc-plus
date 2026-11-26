@@ -78,6 +78,7 @@ impl App {
             self.pointer.drag,
             Drag::Splitter { .. }
                 | Drag::TerminalDivider { .. }
+                | Drag::GitPanelDivider { .. }
                 | Drag::SplitDivider { .. }
                 | Drag::PaneDivider { .. }
                 | Drag::TerminalSplit { .. }

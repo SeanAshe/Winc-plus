@@ -102,6 +102,9 @@ impl App {
         if combined_view {
             self.apply_combined_view();
         }
+        if old.git_log_placement != self.config.git_log_placement {
+            self.apply_log_placement(false);
+        }
         winc_editor::proxy::follow_system_proxy(self.config.system_proxy != Some(false));
         if images {
             self.preview.markdown.forget_images();

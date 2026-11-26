@@ -44,11 +44,13 @@ git-branch-force-delete-confirm = 分支「{ $name }」尚未完全合并，仍�
 git-branch-force-delete-confirm-detail = 仅属于此分支的提交可能丢失。
 git-branch-force-delete-confirm-button = 仍要删除
 git-branch-compare-with-current = 与当前分支比较
+git-history-group = 提交历史
+git-history-more = 在日志中查看更早的提交
 git-stash-group = 储藏
-git-stash-more-files = 还有 { $count } 个文件
+git-peek-more-files = 还有 { $count } 个文件
 git-stash-more = 另有 { $count } 个储藏…
 git-stash-too-many = Windows 上一次储藏的文件过多。请选中整个文件夹，或分几次储藏。
-git-stash-no-files = 此储藏中无可显示的更改
+git-peek-no-files = 无可显示的更改
 git-stash-apply = 应用
 git-stash-pop = 应用并删除
 git-stash-drop = 删除
@@ -554,6 +556,10 @@ git-log-reset-hard-confirm-button = 硬重置
 ## 日志标签和文件历史
 
 git-log-title = Git 日志
+git-panel-move-to-editor = 将日志移到编辑区
+git-panel-move-to-panel = 将日志移到面板
+git-panel-show = 显示 Git 面板
+git-panel-hide = 隐藏 Git 面板
 git-history-title = { $name } · 历史
 git-lines-history-title = { $name }:{ $start }–{ $end } · 历史
 git-log-target-not-loaded = 目标提交尚未加载，请向下滚动列表后重试

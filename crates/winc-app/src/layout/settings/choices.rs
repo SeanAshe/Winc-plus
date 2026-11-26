@@ -73,6 +73,14 @@ pub fn open_worktree_label(choice: winc_config::WorktreeOpen) -> &'static str {
     }
 }
 
+/// 返回日志位置 `choice` 在设置中显示的名称。
+pub fn log_placement_label(choice: winc_config::LogPlacement) -> &'static str {
+    match choice {
+        winc_config::LogPlacement::Panel => t!("settings-git-log-placement-panel"),
+        winc_config::LogPlacement::Editor => t!("settings-git-log-placement-editor"),
+    }
+}
+
 /// 返回拉取方式 `choice` 在设置中显示的名称。
 pub fn pull_mode_label(choice: winc_config::PullMode) -> &'static str {
     use winc_config::PullMode::{Config, Merge, Rebase};

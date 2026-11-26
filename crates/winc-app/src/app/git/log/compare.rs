@@ -8,7 +8,7 @@ impl App {
     /// 固定在最前面的提交（见 `LogQuery::pin`）不在按时间排列的位置上，总是作为旧的一侧：
     /// 它通常是转到的、已不在任何分支上的较早版本。
     pub(super) fn compare_log_rows(&mut self, a: usize, b: usize) {
-        let Some(view) = self.editor.active().and_then(|d| d.log.as_deref()) else {
+        let Some(view) = self.log_view() else {
             return;
         };
         let pinned = |row: usize| {
@@ -33,7 +33,7 @@ impl App {
         let Some(root) = self.active_log_root().map(Path::to_path_buf) else {
             return;
         };
-        let Some(doc) = self.editor.active_mut() else {
+        let Some(doc) = self.log_doc_mut() else {
             return;
         };
         let id = doc.id;
@@ -87,7 +87,7 @@ impl App {
         let Some(root) = self.active_log_root().map(Path::to_path_buf) else {
             return;
         };
-        let Some((id, request)) = self.editor.active().and_then(|doc| {
+        let Some((id, request)) = self.log_doc().and_then(|doc| {
             let view = doc.log.as_deref()?;
             Some((doc.id, view.compare_request))
         }) else {
@@ -128,7 +128,7 @@ impl App {
     /// 退出比较，详情一栏回到选着的提交。
     pub(in crate::app) fn clear_log_compare(&mut self) {
         self.git.log.file = None;
-        if let Some(view) = self.editor.active_mut().and_then(|d| d.log.as_deref_mut()) {
+        if let Some(view) = self.log_view_mut() {
             // 尚未返回的「与指定版本比较」随之作废。
             view.compare_request += 1;
             if view.compare.take().is_none() {

@@ -2,6 +2,7 @@
 
 use super::super::touch;
 use super::*;
+use crate::app::git::panel::PanelHit;
 
 impl App {
     /// 处理鼠标按键 `button` 在当前鼠标位置按下。
@@ -226,6 +227,8 @@ impl App {
                 bar @ (Scrollbar::Panel
                 | Scrollbar::Commit
                 | Scrollbar::Outline
+                | Scrollbar::CommitHistory
+                | Scrollbar::GitPanel
                 | Scrollbar::LogBranches),
                 grab,
             ) => {
@@ -504,6 +507,14 @@ impl App {
                 let size = self.outline_list().h;
                 self.pointer.drag = Drag::OutlineDivider { start: y, size };
             }
+            Target::GitPanel(PanelHit::Divider) if self.click_count(x, y) == 2 => {
+                self.reset_git_panel_height();
+            }
+            Target::GitPanel(PanelHit::Divider) => {
+                let size = self.layout.git_panel.h;
+                self.pointer.drag = Drag::GitPanelDivider { start: y, size };
+            }
+            Target::GitPanel(hit) => self.press_git_panel(hit),
             Target::TerminalDivider => {
                 // 最大化、还原途中按下时停在终点，从当前大小开始拖。
                 self.terminal.grow = None;

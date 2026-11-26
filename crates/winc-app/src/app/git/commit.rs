@@ -16,10 +16,16 @@ pub(in crate::app) use actions::COMMITTED_SHOWN;
 pub(crate) use actions::{PUSH_PREVIEW, PushIntent, RollbackTo, SyncState};
 pub(crate) use compose::{AUTHOR_COMMITS, OWN_MESSAGES};
 pub use ignore::IgnoreKind;
+mod history;
 mod list;
+pub(crate) use history::HISTORY_LIST_KEEP;
+pub(crate) use history::HistoryLine;
+pub use history::HistoryTarget;
+mod peek;
+pub(crate) use peek::PeekView;
 mod stash;
 use stash::STASH_GAP;
-pub(crate) use stash::{StashLine, StashView};
+pub(crate) use stash::StashLine;
 pub(crate) use strip::ActionStrip;
 mod drawer;
 pub(crate) use drawer::{DRAWER_CLOSED, DRAWER_TOP, Drawer};
@@ -532,11 +538,13 @@ pub enum CommitTarget {
     GroupCheck(CommitGroup),
     /// 组标题上的回滚按钮：回滚这一组的全部文件，暂存区视图中回滚到暂存区。
     GroupRevert(CommitGroup),
+    /// 提交历史一组中的位置。
+    History(HistoryTarget),
     /// 储藏一组的标题：收起或展开。
     Stashes,
     /// 第几条储藏（`GitState::stashes` 的下标）那一行：在预览标签里看它的改动。
     Stash(usize),
-    /// 正在看的储藏下面列出的一个文件（`StashView::files` 的下标）：在预览标签里看它。
+    /// 正在查看的储藏下面列出的一个文件（`PeekView::files` 的下标）：在预览标签里看它。
     StashFile(usize),
     /// 悬停储藏那一行时右端的「应用」。
     StashApply(usize),
@@ -684,6 +692,8 @@ pub(crate) struct CommitParts {
     pub stashes: Option<Rect>,
     /// 工作树一组，在改动列表和储藏之间；当前仓库只有一个工作树时为 `None`。
     pub worktrees: Option<Rect>,
+    /// 提交历史一组，在改动列表和工作树之间；仓库没有提交时为 `None`。
+    pub history: Option<Rect>,
     /// 改动列表。
     pub list: Rect,
 }
@@ -702,8 +712,8 @@ enum Outcome {
     Undone(Result<(), String>, LastCommit, PathBuf),
     /// 回滚完成：回滚的文件数，或者失败的原因；在哪个仓库里回滚的。
     RolledBack(Result<usize, String>, PathBuf),
-    /// 取回了一条储藏（提交号、名字）改动的文件。
-    StashFiles(String, String, stash::StashFiles),
+    /// 取回了一条储藏或一个提交改动的文件：请求序号（`peek_request`）、提交号、名字。
+    PeekFiles(u64, String, String, peek::PeekFiles),
     /// 写入暂存区的一步操作完成，或者失败的原因；在哪个仓库里进行的。
     Staged(Result<(), String>, PathBuf),
     /// 提交前检查完了新增的内容：其中 TODO、FIXME 的处数，在哪个仓库里检查的。
@@ -715,8 +725,11 @@ enum Outcome {
     /// 读到了文件在暂存区中的内容：仓库、文件、发出读取时暂存区的版本、内容（不是文本时为
     /// `None`）。
     IndexText(PathBuf, PathBuf, u64, Option<String>),
-    /// 准备好了储藏里一个文件的差异（标签的标题），或者失败的原因。
-    StashDiff(
+    /// 提交历史读取完成。
+    History(history::HistoryOutcome),
+    /// 准备好了储藏或提交里一个文件的差异：请求序号、标签的标题，或者失败的原因。
+    PeekDiff(
+        u64,
         String,
         Result<Box<winc_editor::diff_view::DiffView>, String>,
     ),
@@ -909,14 +922,18 @@ pub(crate) struct CommitState {
     pub(crate) stashes: Drawer,
     /// 工作树一组的展开状态和高度的过渡，默认展开。
     pub(crate) worktrees: Drawer,
+    /// 提交历史一组。
+    pub(crate) history: history::History,
     /// 上一帧绘制时是否已读到仓库的状态：读到之后底部各组的高度变化才过渡。
     pub(crate) sections_known: bool,
-    /// 正在储藏的预览标签里看的一条储藏。
-    pub(crate) stash_view: Option<StashView>,
-    /// 正在查看的储藏下面的文件是否已收起：再次点击该储藏时在收起与展开之间切换。
-    pub(crate) stash_files_folded: bool,
-    /// 储藏的预览标签：和改动列表的预览标签分开，那个标签跟着工作区里的文件刷新。
-    pub(crate) stash_preview: Option<DocumentId>,
+    /// 在预览标签 `peek_preview` 里查看的一条储藏或一个提交。
+    pub(crate) peek: Option<PeekView>,
+    /// `peek` 下面的文件是否已收起：再次点击同一行时在收起与展开之间切换。
+    pub(crate) peek_folded: bool,
+    /// 储藏和提交历史的预览标签：和改动列表的预览标签分开，那个标签跟着工作区里的文件刷新。
+    pub(crate) peek_preview: Option<DocumentId>,
+    /// 最近一次查看储藏、提交或其中文件的请求序号；结果到达时不是最近的请求即丢弃。
+    pub(crate) peek_request: u64,
     /// 正在询问新增的 TODO 要不要仍然提交：这次提交在等回答。
     todo_asked: bool,
     /// 提交成功以后继续推送（「提交并推送」）。
@@ -1053,10 +1070,12 @@ impl Default for CommitState {
             labels: CommitLabels::default(),
             stashes: Drawer::new(false),
             worktrees: Drawer::new(true),
+            history: Default::default(),
             sections_known: false,
-            stash_view: None,
-            stash_files_folded: false,
-            stash_preview: None,
+            peek: None,
+            peek_folded: false,
+            peek_preview: None,
+            peek_request: 0,
             todo_asked: false,
             push_after: false,
             sync_after: false,

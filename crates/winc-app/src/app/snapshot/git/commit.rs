@@ -13,6 +13,7 @@ const ACTION_SLOT: f32 = 20.0;
 mod actions;
 mod checks;
 mod compose;
+mod history;
 mod names;
 mod others;
 mod staging;

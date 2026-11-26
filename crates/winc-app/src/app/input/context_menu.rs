@@ -265,6 +265,8 @@ pub enum MenuCommand {
     /// 设置中「拉取方式」菜单的一项，参数为 [`PullMode::ALL`](winc_config::PullMode::ALL) 中的
     /// 序号（从 0 起）。
     PullMode(usize),
+    /// 设置页「日志位置」菜单中的第几项（`winc_config::LogPlacement::ALL` 的下标）。
+    LogPlacement(usize),
     /// 设置中「拖入目录」菜单的一项，参数为
     /// [`FolderDrop::ALL`](winc_config::FolderDrop::ALL) 中的序号（从 0 起）。
     DropFolder(usize),
@@ -459,6 +461,8 @@ pub enum MenuCommand {
     LogGoTo,
     /// 日志里的提交：与输入的提交号、分支或标签比较。
     LogCompareRevision,
+    /// 提交历史里的提交：在日志中选中它。
+    LogShowInLog,
     /// 编辑区：开关逐行追溯（开着时打勾）。
     ToggleBlame,
     /// 提交视图「⋯」：储藏改动（输入说明）。
@@ -707,6 +711,7 @@ impl MenuCommand {
             MenuCommand::LogCopyShortOid => t!("menu-log-copy-short-oid"),
             MenuCommand::LogGoTo => t!("menu-log-go-to"),
             MenuCommand::LogCompareRevision => t!("menu-log-compare-revision"),
+            MenuCommand::LogShowInLog => t!("menu-log-show-in-log"),
             MenuCommand::LogCopyMessage => t!("menu-log-copy-message"),
             MenuCommand::LogCopyPatch => t!("menu-log-copy-patch"),
             MenuCommand::LogCompareWithLocal => t!("menu-log-compare-with-local"),
@@ -806,6 +811,9 @@ impl MenuCommand {
             MenuCommand::PullMode(i) => winc_config::PullMode::ALL
                 .get(i)
                 .map_or("", |&choice| crate::layout::pull_mode_label(choice)),
+            MenuCommand::LogPlacement(i) => winc_config::LogPlacement::ALL
+                .get(i)
+                .map_or("", |&choice| crate::layout::log_placement_label(choice)),
             MenuCommand::SearchStyle(i) => winc_config::SearchStyle::ALL
                 .get(i)
                 .map_or("", |&choice| crate::layout::search_style_label(choice)),
@@ -1036,6 +1044,8 @@ pub enum MenuTarget {
     OpenWorktree,
     /// 设置的 Git 页中的「拉取方式」。
     PullMode,
+    /// 设置页的「日志位置」。
+    LogPlacement,
     /// 设置的编辑器页中的「拖入目录」。
     DropFolder,
     /// 「在文件中查找」设置的选项菜单。
@@ -1126,6 +1136,8 @@ pub enum MenuTarget {
     LogPath,
     /// 日志里的一个提交（完整的提交号）。
     LogCommit(String),
+    /// 提交视图中提交历史里的一个提交（完整的提交号）。
+    HistoryCommit(String),
     /// 日志详情（或比较）里改动的一个文件：文件列表里的下标和文件的路径。
     LogFile(usize, PathBuf),
     /// 终端标签栏上的一个标签（编号）。

@@ -50,7 +50,7 @@ impl App {
         let Some(root) = self.log_root(id) else {
             return;
         };
-        let view = self.editor.document(id).and_then(|d| d.log.as_deref());
+        let view = self.log_document(id).and_then(|d| d.log.as_deref());
         let Some(details) = view.and_then(|v| v.details.as_ref()) else {
             return;
         };
@@ -76,7 +76,11 @@ impl App {
     /// 选中了日志标签 `id` 里的一个提交：停下 [`BRANCHES_DELAY`] 以后再查包含它的分支（见
     /// [`App::log_tick`]）。上次没查出来的这次重新查。
     pub(super) fn schedule_log_branches(&mut self, id: DocumentId) {
-        let view = self.editor.document(id).and_then(|d| d.log.as_deref());
+        let view = self
+            .git
+            .panel
+            .doc(&self.editor, id)
+            .and_then(|d| d.log.as_deref());
         if let Some(oid) = view.and_then(|v| v.details.as_ref()).map(|d| &d.oid) {
             self.git.log.branches_failed.remove(oid);
         }

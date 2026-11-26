@@ -827,8 +827,13 @@ impl App {
     pub(in crate::app) fn poll_commit(&mut self) {
         while let Ok(outcome) = self.git.commit.results.1.try_recv() {
             match outcome {
-                Outcome::StashFiles(oid, name, files) => self.stash_files_arrived(oid, name, files),
-                Outcome::StashDiff(title, view) => self.stash_diff_arrived(title, view),
+                Outcome::PeekFiles(request, oid, name, files) => {
+                    self.peek_files_arrived(request, oid, name, files);
+                }
+                Outcome::PeekDiff(request, title, view) => {
+                    self.peek_diff_arrived(request, title, view);
+                }
+                Outcome::History(outcome) => self.history_arrived(outcome),
                 Outcome::LastMessage(message) => {
                     // 等结果的时候用户已经关闭了「修改上一次提交」，就不填。
                     if self.git.commit.amend {
@@ -991,6 +996,8 @@ impl App {
     pub(in crate::app::git) fn reset_commit_view(&mut self) {
         let old = std::mem::take(&mut self.git.commit);
         self.git.commit.results = old.results;
+        // 查看储藏、提交的请求序号延续下去：此前仓库仍在进行的请求结束时按序号丢弃。
+        self.git.commit.peek_request = old.peek_request;
         self.git.commit.flat = old.flat;
         self.git.commit.sort = old.sort;
         self.git.commit.staging = old.staging;
@@ -1014,6 +1021,7 @@ impl App {
             motion: None,
             ..old.worktrees
         };
+        self.git.commit.history = old.history.switched();
         self.git.commit.card = old.card;
         self.git.commit.undo = old.undo;
         self.git.commit.undo_drawn = old.undo_drawn;

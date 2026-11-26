@@ -39,6 +39,7 @@ impl App {
             Focus::TerminalFind => self.terminal.find.as_mut().map(|f| &mut f.field),
             Focus::TerminalRename => self.terminal.rename.as_mut().map(|(_, field)| field),
             Focus::Editor
+            | Focus::GitPanel
             | Focus::Tree
             | Focus::Results
             | Focus::SearchDock

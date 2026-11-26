@@ -512,6 +512,14 @@ impl Editor {
         (index, true)
     }
 
+    /// 把已有的文档 `document`（例如从编辑区以外移回来的日志）作为前台窗格的最后一个标签并设为
+    /// 当前标签，返回它的标签序号（从 0 起）。
+    pub fn insert_document(&mut self, document: Document) -> usize {
+        let index = self.insert_tab(document);
+        self.active = Some(index);
+        index
+    }
+
     /// 把新文档作为前台窗格的最后一个标签，沿用窗口的只读状态，返回它的标签序号（从 0 起）。
     fn insert_tab(&mut self, mut document: Document) -> usize {
         document.set_all_locked(self.all_locked);
@@ -739,7 +747,9 @@ impl Editor {
         Ok(())
     }
 
-    fn allocate_id(&mut self) -> DocumentId {
+    /// 分配一个新的文档编号。暂时不在标签中的文档（调用方另外保存，之后经
+    /// [`Self::insert_document`] 放回）同样用它编号，与各标签的编号不重复。
+    pub fn allocate_id(&mut self) -> DocumentId {
         self.next_id += 1;
         DocumentId(self.next_id)
     }

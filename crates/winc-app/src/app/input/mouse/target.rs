@@ -57,6 +57,38 @@ impl App {
         !crate::layout::in_control_column(&self.caption_controls(), TAB_GAP, x)
     }
 
+    /// 返回 Git 面板及其上沿的间距中 (`x`, `y`) 处的目标：上沿、标题行的按钮和标签、日志的滚动条
+    /// 和可点击的部分、详情中的文字，都不是时为面板本身；不在面板中时为 `None`。
+    fn git_panel_target(&self, x: f32, y: f32) -> Option<Target> {
+        use crate::app::git::panel::PanelHit;
+        if self.layout.git_divider.contains(x, y) {
+            return Some(Target::GitPanel(PanelHit::Divider));
+        }
+        if !self.in_git_panel(x, y) {
+            return None;
+        }
+        Some(self.git_panel_part(x, y))
+    }
+
+    /// 返回 Git 面板中 (`x`, `y`) 处的部分，见 [`Self::git_panel_target`]。
+    fn git_panel_part(&self, x: f32, y: f32) -> Target {
+        use crate::app::git::panel::PanelHit;
+        if let Some(hit) = hit(&self.hits.git_panel, x, y) {
+            return Target::GitPanel(hit);
+        }
+        let log_bar = |bar| matches!(bar, Scrollbar::GitPanel | Scrollbar::LogBranches);
+        if let Some((bar, grab)) = self.scrollbar_at(x, y).filter(|(bar, _)| log_bar(*bar)) {
+            return Target::Scrollbar(bar, grab);
+        }
+        if let Some(target) = hit(&self.hits.log, x, y) {
+            return Target::Log(target);
+        }
+        if self.log_parts().details.contains(x, y) {
+            return Target::LogText;
+        }
+        Target::GitPanel(PanelHit::Body)
+    }
+
     /// 返回顶栏范围内按客户区处理的控件矩形（逻辑像素）。
     ///
     /// 结果为布局坐标；交给窗口过程前由 `window_hit_test` 乘以界面缩放倍数。
@@ -190,6 +222,7 @@ impl App {
                 | Target::Minimap
                 | Target::Splitter
                 | Target::TerminalDivider
+                | Target::GitPanel(crate::app::git::panel::PanelHit::Divider)
                 | Target::OutlineDivider
                 | Target::SplitDivider
                 | Target::PaneDivider(_)
@@ -286,6 +319,7 @@ impl App {
             Target::ChangeMark(hunk) => Hover::ChangeMark(hunk),
             Target::Gutter => Hover::Gutter,
             Target::TerminalDivider => Hover::TerminalDivider,
+            Target::GitPanel(hit) => Hover::GitPanel(hit),
             Target::OutlineDivider => Hover::OutlineDivider,
             Target::SplitDivider => Hover::SplitDivider,
             Target::PaneDivider(index) => Hover::PaneDivider(index),
@@ -340,14 +374,19 @@ impl App {
         if let Some(control) = self.window_control_at(x, y) {
             return Target::WindowControl(control);
         }
+        // 最大化的 Git 面板盖住了编辑区：编辑区里的补全、选区工具、改动卡片和冲突按钮在面板下面，
+        // 不响应；提示条、快速打开面板和查找对话框仍在面板上面。
+        let under_panel = self.git.panel.full && self.in_git_panel(x, y);
         // 链接地址的补全列表浮在文字上。
         if let Some(card) = self.hits.suggest_card
             && card.contains(x, y)
+            && !under_panel
         {
             return hit(&self.hits.suggest, x, y).map_or(Target::Blocked, Target::Suggest);
         }
         if let Some(card) = self.hits.selection_card
             && card.contains(x, y)
+            && !under_panel
         {
             let tool = hit(&self.hits.selection_tools, x, y);
             return tool.map_or(Target::Blocked, Target::SelectionTool);
@@ -355,6 +394,7 @@ impl App {
         // 浮于编辑区之上的卡片和提示条：只响应其中的按钮，卡片的其余区域遮挡下方的部件。
         if let Some(card) = self.hits.changes_card
             && card.contains(x, y)
+            && !under_panel
         {
             return hit(&self.hits.changes, x, y).map_or(Target::Blocked, Target::Change);
         }
@@ -369,14 +409,15 @@ impl App {
             return Target::Blocked;
         }
         // 合并冲突的按钮既位于卡片上，也位于冲突标记行上。
-        if let Some(target) = hit(&self.hits.merge, x, y) {
+        if let Some(target) = hit(&self.hits.merge, x, y).filter(|_| !under_panel) {
             return Target::Merge(target);
         }
-        if self.hits.merge_card.is_some_and(|card| card.contains(x, y)) {
+        if self.hits.merge_card.is_some_and(|card| card.contains(x, y)) && !under_panel {
             return Target::Blocked;
         }
         if let Some((card, buttons)) = &self.hits.conflict_card
             && card.contains(x, y)
+            && !under_panel
         {
             return buttons
                 .iter()
@@ -391,6 +432,10 @@ impl App {
         if let Some(part) = self.search_dialog_part_at(x, y) {
             return Target::SearchDialog(part);
         }
+        // Git 面板最大化时盖在侧栏、编辑区和终端上面：先于它们判断。
+        if let Some(target) = self.git_panel_target(x, y) {
+            return target;
+        }
         if self.hits.tree_more.is_some_and(|more| more.contains(x, y)) {
             return Target::TreeMore;
         }
@@ -401,7 +446,12 @@ impl App {
         let side = |bar| {
             matches!(
                 bar,
-                Scrollbar::Panel | Scrollbar::Commit | Scrollbar::Outline | Scrollbar::LogBranches
+                Scrollbar::Panel
+                    | Scrollbar::Commit
+                    | Scrollbar::CommitHistory
+                    | Scrollbar::GitPanel
+                    | Scrollbar::Outline
+                    | Scrollbar::LogBranches
             )
         };
         if let Some((bar, grab)) = self.scrollbar_at(x, y).filter(|(bar, _)| side(*bar))
@@ -465,6 +515,11 @@ impl App {
         if l.terminal_return.contains(x, y) && self.editor.active().is_some_and(|doc| doc.terminal)
         {
             return Target::TerminalHeader(crate::app::terminal::HeaderHit::Panel);
+        }
+        if l.terminal_return.contains(x, y)
+            && self.editor.active().is_some_and(|doc| doc.log.is_some())
+        {
+            return Target::GitPanel(crate::app::git::panel::PanelHit::ToPanel);
         }
         if self.field_at(x, y) == Some(Focus::TerminalRename)
             && self.editor.active().is_some_and(|doc| doc.terminal)
@@ -685,6 +740,15 @@ impl App {
                 return Some((Scrollbar::Panel, grab(y, thumb.y, thumb.h)));
             }
         }
+        // Git 面板中日志的提交列表。
+        if self.git_panel_shown() {
+            let list = self.log_parts().list;
+            if list.contains(x, y) && x >= list.right() - SCROLLBAR_HIT {
+                let (scroll, content) = self.panel_log_extent();
+                let thumb = scrollbar_thumb(list, scroll, content)?;
+                return Some((Scrollbar::GitPanel, grab(y, thumb.y, thumb.h)));
+            }
+        }
         // 日志左侧的分支面板。
         if self.log_active() {
             let list = self.log_parts().branches;
@@ -702,6 +766,16 @@ impl App {
                 let thumb = scrollbar_thumb(list, self.panels.outline.scroll, content)?;
                 return Some((Scrollbar::Outline, grab(y, thumb.y, thumb.h)));
             }
+        }
+        // 提交视图中提交历史一组的各行。
+        if self.commit_shown()
+            && let Some(rows) = self.history_rows_area()
+            && rows.contains(x, y)
+            && x >= rows.right() - SCROLLBAR_HIT
+        {
+            let content = self.history_max_scroll() + rows.h;
+            let thumb = scrollbar_thumb(rows, self.git.commit.history.scroll, content)?;
+            return Some((Scrollbar::CommitHistory, grab(y, thumb.y, thumb.h)));
         }
         // Git 侧栏里正在显示的改动列表。
         if self.commit_shown() {
@@ -1063,6 +1137,10 @@ impl App {
             } else {
                 CursorIcon::ColResize
             }
+        } else if matches!(self.pointer.drag, Drag::GitPanelDivider { .. })
+            || self.pointer.hover == Hover::GitPanel(crate::app::git::panel::PanelHit::Divider)
+        {
+            CursorIcon::RowResize
         } else if matches!(self.pointer.drag, Drag::TerminalDivider { .. })
             || self.pointer.hover == Hover::TerminalDivider
         {
@@ -1232,6 +1310,8 @@ pub(super) enum Target {
     Terminal,
     /// 编辑区与终端面板之间的间距。
     TerminalDivider,
+    /// Git 面板中可点击的位置。
+    GitPanel(crate::app::git::panel::PanelHit),
     /// 文件视图中大纲标题行的上沿。
     OutlineDivider,
     /// 分栏预览中间的分隔线。

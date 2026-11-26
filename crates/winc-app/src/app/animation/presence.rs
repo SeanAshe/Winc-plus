@@ -86,6 +86,8 @@ pub struct ModuleFx {
     pub terminal: Presence,
     /// 状态栏右端连接远端主机的按钮，随远程模块出现、消失。
     pub remote: Presence,
+    /// 状态栏右端的 Git 面板开关：Git 模块开着、有仓库且日志在 Git 面板中时出现。
+    pub git_panel: Presence,
     /// 设置分类栏中的「Git」一项，随 Git 模块出现、消失。
     pub git: Presence,
     /// 状态栏的分支名。
@@ -106,6 +108,7 @@ impl ModuleFx {
         self.commit_tab.moving()
             || self.terminal.moving()
             || self.remote.moving()
+            || self.git_panel.moving()
             || self.git.moving()
             || self.branch.moving()
             || self.preview.moving()
@@ -121,6 +124,7 @@ impl App {
         let terminal = self.terminal_enabled();
         let remote = self.remote_enabled();
         let git = self.git_enabled();
+        let git_panel = self.git_panel_button();
         let branch = self.git.status.as_ref().is_some_and(|s| s.head.is_some());
         let preview = self.editor.active().is_some_and(|d| d.can_preview());
         let browser = self.browser_page().is_some();
@@ -128,6 +132,7 @@ impl App {
         let changed = fx.commit_tab.shown != commit
             || fx.terminal.shown != terminal
             || fx.remote.shown != remote
+            || fx.git_panel.shown != git_panel
             || fx.git.shown != git
             || fx.branch.shown != branch
             || fx.preview.shown != preview
@@ -143,6 +148,7 @@ impl App {
         fx.commit_tab.track(commit, clock);
         fx.terminal.track(terminal, clock);
         fx.remote.track(remote, clock);
+        fx.git_panel.track(git_panel, clock);
         fx.git.track(git, clock);
         fx.branch.track(branch, clock);
         if !branch && !fx.branch.moving() {

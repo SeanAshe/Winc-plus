@@ -1,6 +1,7 @@
 //! 悬停提示：停留满 `TOOLTIP_DELAY` 后淡入，按目标放在按钮下方、旁边或从鼠标处开始。
 
 use super::*;
+use crate::app::{CommitTarget, HistoryTarget};
 
 /// 绘制按钮的悬停提示。
 ///
@@ -20,7 +21,9 @@ pub(super) fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
     if !rested {
         return;
     }
-    let tip = workspace::panel::tooltip(app).or_else(|| workspace::search_dialog::tooltip(app));
+    let tip = workspace::panel::tooltip(app)
+        .or_else(|| workspace::search_dialog::tooltip(app))
+        .or_else(|| git_tip(app));
     let (button, label): (Rect, String) = match tip {
         Some(tip) => tip,
         None => match app.pointer.hover {
@@ -121,11 +124,7 @@ pub(super) fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
                     .log
                     .iter()
                     .find(|(_, t)| *t == crate::app::git::log::LogTarget::Avatar(i));
-                let commit = app
-                    .editor
-                    .active()
-                    .and_then(|d| d.log.as_deref())
-                    .and_then(|v| v.commits.get(i));
+                let commit = app.log_view().and_then(|v| v.commits.get(i));
                 match (hit, commit) {
                     (Some(&(rect, _)), Some(c)) => (rect, format!("{} <{}>", c.author, c.email)),
                     _ => return,
@@ -140,12 +139,9 @@ pub(super) fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
                 // 线段的命中框很小，提示放在鼠标下方，不按命中框居中。
                 let (mx, my) = app.mouse();
                 let rect = Rect::new(mx, my + 6.0, 0.0, 0.0);
-                let commit = app.log_line_target(row, line).and_then(|j| {
-                    app.editor
-                        .active()
-                        .and_then(|d| d.log.as_deref())
-                        .and_then(|v| v.commits.get(j))
-                });
+                let commit = app
+                    .log_line_target(row, line)
+                    .and_then(|j| app.log_view().and_then(|v| v.commits.get(j)));
                 let label = match commit {
                     Some(c) => t!(
                         "workspace-tip-log-go-to",
@@ -203,11 +199,7 @@ pub(super) fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
                     .log
                     .iter()
                     .find(|(_, t)| *t == crate::app::git::log::LogTarget::Row(i));
-                let commit = app
-                    .editor
-                    .active()
-                    .and_then(|d| d.log.as_deref())
-                    .and_then(|v| v.commits.get(i));
+                let commit = app.log_view().and_then(|v| v.commits.get(i));
                 match (hit, commit) {
                     (Some(&(rect, _)), Some(c)) => (rect, c.subject.clone()),
                     _ => return,
@@ -221,9 +213,8 @@ pub(super) fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
     let place = match app.pointer.hover {
         Hover::RulerChange(_) => TipPlace::Beside,
         // 列表的一行：提示从开始悬停时鼠标的位置开始。
-        Hover::Log(LogTarget::Row(_) | LogTarget::BranchRow(_) | LogTarget::File(_)) => {
-            TipPlace::Pointer
-        }
+        Hover::Log(LogTarget::Row(_) | LogTarget::BranchRow(_) | LogTarget::File(_))
+        | Hover::Commit(CommitTarget::History(HistoryTarget::Commit(_))) => TipPlace::Pointer,
         _ => TipPlace::Below,
     };
     let button = match place {
@@ -233,6 +224,48 @@ pub(super) fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
     let tip = (button, label.as_str(), place);
     draw_tip(app, frame, tip, app.tooltip_opacity());
     *app.overlays.tooltip.last.borrow_mut() = Some((button, label, place));
+}
+
+/// 返回 Git 面板标题行的按钮、日志标签栏右端的「移至面板」、提交历史中的提交和标题行按钮的
+/// 提示：对着的范围和文字；鼠标不在这些位置上时为 `None`。
+fn git_tip(app: &App) -> Option<(Rect, String)> {
+    use crate::app::git::panel::PanelHit;
+    let commit_hit = |target| {
+        app.hits
+            .commit
+            .iter()
+            .find(|(_, t)| *t == target)
+            .map(|h| h.0)
+    };
+    match app.pointer.hover {
+        Hover::GitPanel(hit) => {
+            let rect = match hit {
+                PanelHit::ToPanel => app.layout.terminal_return,
+                _ => app.hits.git_panel.iter().find(|(_, h)| *h == hit)?.0,
+            };
+            let label = match hit {
+                PanelHit::ToEditor => t!("git-panel-move-to-editor").to_owned(),
+                PanelHit::ToPanel => t!("git-panel-move-to-panel").to_owned(),
+                PanelHit::Maximize if app.git.panel.full => t!("terminal-restore-panel").to_owned(),
+                PanelHit::Maximize => t!("terminal-maximize-panel").to_owned(),
+                PanelHit::Hide => {
+                    crate::layout::with_key(t!("git-panel-hide"), Some(Action::GitShowLog))
+                }
+                _ => return None,
+            };
+            Some((rect, label))
+        }
+        // 提交历史中的提交：完整的说明，以及作者、时间和短提交号。
+        Hover::Commit(target @ CommitTarget::History(HistoryTarget::Commit(i))) => {
+            Some((commit_hit(target)?, app.history_tip(i)?))
+        }
+        Hover::Commit(target @ CommitTarget::History(HistoryTarget::Log)) => {
+            let tip = t!("menu-log-show-in-log");
+            let label = crate::layout::with_key(tip, Some(Action::GitShowLog));
+            Some((commit_hit(target)?, label))
+        }
+        _ => None,
+    }
 }
 
 /// 画一条提示：对着 `button`，文字 `label`，位置见 [`crate::app::animation::TipPlace`]。整条

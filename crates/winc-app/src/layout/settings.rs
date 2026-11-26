@@ -224,6 +224,8 @@ pub enum Setting {
     GitRememberCredentials,
     /// 光标所在行末尾的追溯提示（`git.inlineBlame`）。
     GitInlineBlame,
+    /// 提交视图中的提交历史（`git.commitHistory`）。
+    GitCommitHistory,
     /// 定时在后台获取（`git.autoFetch`）。
     GitAutoFetch,
     /// 提交视图的更改列表按目录排成树；记在状态文件里，与「⋯」菜单中的是同一个开关。
@@ -235,6 +237,8 @@ pub enum Setting {
     GitCombinedDiff,
     /// 点击工作树时在哪个窗口打开它（`git.openWorktree`）。
     GitOpenWorktree,
+    /// 日志和文件历史显示在 Git 面板中还是编辑区的标签中（`git.logPlacement`）。
+    GitLogPlacement,
     /// 在打开的目录下查找仓库的层数（`git.repositoryScanDepth`）。
     GitScanDepth,
     /// 拉取、同步时合并还是变基（`git.pull`）。
@@ -359,6 +363,7 @@ impl Setting {
             S::TerminalApplicationPriority | S::TerminalOptionAsMeta => SettingsPage::Terminal,
             S::GitPath
             | S::GitOpenWorktree
+            | S::GitLogPlacement
             | S::GitStagingArea
             | S::GitTree
             | S::DiffInline
@@ -367,6 +372,7 @@ impl Setting {
             S::GitInlineBlame | S::GitPullMode | S::GitConfirmPush | S::GitAutoFetch => {
                 SettingsPage::Git
             }
+            S::GitCommitHistory => SettingsPage::Git,
             S::GitRememberCredentials => SettingsPage::Git,
             S::ExplorerMenu | S::FileAssociations => SettingsPage::General,
             S::ExportSettings | S::ImportSettings => SettingsPage::General,
@@ -464,10 +470,12 @@ impl Setting {
             S::GitConfirmPush => "git.confirmPush",
             S::GitRememberCredentials => "git.rememberCredentials",
             S::GitInlineBlame => "git.inlineBlame",
+            S::GitCommitHistory => "git.commitHistory",
             S::GitAutoFetch => "git.autoFetch",
             S::GitStagingArea => "git.stagingArea",
             S::GitCombinedDiff => "git.combinedDiff",
             S::GitOpenWorktree => "git.openWorktree",
+            S::GitLogPlacement => "git.logPlacement",
             S::GitScanDepth => "git.repositoryScanDepth",
             S::GitPullMode => "git.pull",
             S::GitPath => "git.path",
@@ -578,11 +586,13 @@ impl Setting {
             Setting::GitRememberCredentials => t!("settings-git-remember-credentials"),
             Setting::SystemProxy => t!("settings-system-proxy"),
             Setting::GitInlineBlame => t!("settings-git-inline-blame"),
+            Setting::GitCommitHistory => t!("settings-git-commit-history"),
             Setting::GitAutoFetch => t!("settings-git-auto-fetch"),
             Setting::GitTree => t!("settings-git-tree"),
             Setting::GitStagingArea => t!("settings-git-staging-area"),
             Setting::GitCombinedDiff => t!("settings-git-combined-diff"),
             Setting::GitOpenWorktree => t!("settings-git-open-worktree"),
+            Setting::GitLogPlacement => t!("settings-git-log-placement"),
             Setting::GitScanDepth => t!("settings-git-scan-depth"),
             Setting::GitPullMode => t!("settings-git-pull"),
             Setting::GitPath => t!("settings-git-path"),
@@ -688,11 +698,13 @@ impl Setting {
             Setting::GitRememberCredentials => Some(t!("settings-git-remember-credentials-desc")),
             Setting::SystemProxy => Some(t!("settings-system-proxy-desc")),
             Setting::GitInlineBlame => Some(t!("settings-git-inline-blame-desc")),
+            Setting::GitCommitHistory => Some(t!("settings-git-commit-history-desc")),
             Setting::GitAutoFetch => Some(t!("settings-git-auto-fetch-desc")),
             Setting::GitTree => Some(t!("settings-git-tree-desc")),
             Setting::GitStagingArea => Some(t!("settings-git-staging-area-desc")),
             Setting::GitCombinedDiff => Some(t!("settings-git-combined-diff-desc")),
             Setting::GitOpenWorktree => Some(t!("settings-git-open-worktree-desc")),
+            Setting::GitLogPlacement => Some(t!("settings-git-log-placement-desc")),
             Setting::GitScanDepth => Some(t!("settings-git-scan-depth-desc")),
             Setting::GitPullMode => Some(t!("settings-git-pull-desc")),
             Setting::GitPath => Some(t!("settings-git-path-desc")),
@@ -773,6 +785,7 @@ impl Setting {
             | Setting::GitRememberCredentials
             | Setting::SystemProxy
             | Setting::GitInlineBlame
+            | Setting::GitCommitHistory
             | Setting::GitAutoFetch
             | Setting::GitTree
             | Setting::GitStagingArea
@@ -809,6 +822,7 @@ impl Setting {
             | Setting::AutoSave
             | Setting::SmoothCaret
             | Setting::GitOpenWorktree
+            | Setting::GitLogPlacement
             | Setting::GitPullMode
             | Setting::Keymap => SettingControl::Choice,
             Setting::AddLanguage | Setting::AddFixLanguage => SettingControl::Action,
